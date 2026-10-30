@@ -3,6 +3,7 @@ import express from 'express';
 import OpenAI from 'openai';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createSpeechHandler } from './speech.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -10,6 +11,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 app.use(express.json({ limit: '32kb' }));
 
 app.get('/api/status', (_req, res) => res.json({ configured: Boolean(process.env.OPENAI_API_KEY) }));
+app.post('/api/speech', createSpeechHandler(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })));
 
 app.post('/api/chat', async (req, res) => {
   if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'Add your OpenAI API key to the .env file to bring Peppy to life.' });
@@ -33,7 +35,7 @@ app.post('/api/chat', async (req, res) => {
 
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(here, 'dist')));
-  app.get('*', (_req, res) => res.sendFile(path.join(here, 'dist', 'index.html')));
+  app.get('/{*path}', (_req, res) => res.sendFile(path.join(here, 'dist', 'index.html')));
 }
 
 app.listen(port, '0.0.0.0', () => console.log(`Peppy is ready at http://localhost:${port}`));

@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronRight, Heart, Menu, MessageCircle, Plus, Settings2, Sparkles, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronRight, Heart, Menu, MessageCircle, Mic, Plus, Settings2, Sparkles, Square, Trash2, Volume2, VolumeX, X } from 'lucide-react';
+import { useVoiceChat } from './useVoiceChat';
+import { defaultVoice, speechVoices } from './voiceOptions';
 import './style.css';
 
 const KEY = 'peppy-state-v1';
-const firstState = { messages: [], memory: '', name: '' };
+const firstState = { messages: [], memory: '', name: '', spokenReplies: false, selectedVoice: defaultVoice };
 const topics = [
   { icon: '🏟️', label: 'Sports chat', prompt: 'Let’s talk sports! What’s been exciting lately?' },
   { icon: '🖥️', label: 'Tech things', prompt: 'I’m in a tech mood. Got any fun computer topics for us?' },
@@ -17,6 +19,8 @@ function App() {
   const [messages, setMessages] = useState(saved.messages);
   const [memory, setMemory] = useState(saved.memory);
   const [name, setName] = useState(saved.name);
+  const [spokenReplies, setSpokenReplies] = useState(saved.spokenReplies);
+  const [selectedVoice, setSelectedVoice] = useState(speechVoices.includes(saved.selectedVoice) ? saved.selectedVoice : defaultVoice);
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(null);
@@ -25,25 +29,32 @@ function App() {
   const [copied, setCopied] = useState(false);
   const tail = useRef(null);
   const input = useRef(null);
-  useEffect(() => { localStorage.setItem(KEY, JSON.stringify({ messages, memory, name })); }, [messages, memory, name]);
+  const conversation = useRef(0);
+  const voice = useVoiceChat({ enabled: spokenReplies, selectedVoice, onTranscript: setDraft });
+  const lastReply = [...messages].reverse().find(m => m.role === 'assistant');
+  useEffect(() => { localStorage.setItem(KEY, JSON.stringify({ messages, memory, name, spokenReplies, selectedVoice })); }, [messages, memory, name, spokenReplies, selectedVoice]);
   useEffect(() => { fetch('/api/status').then(r => r.json()).then(setStatus).catch(() => setStatus({ configured: false })); }, []);
   useEffect(() => { tail.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [messages, loading]);
   useEffect(() => { if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {}); }, []);
 
   async function send(text = draft) {
     const content = text.trim(); if (!content || loading) return;
+    voice.stopAll();
+    const currentConversation = conversation.current;
     const next = [...messages, { role: 'user', content }];
     setMessages(next); setDraft(''); setLoading(true);
     try {
       const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: next.slice(-16), memory: [name && `The user's name is ${name}.`, memory].filter(Boolean).join('\n') }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Something went wrong.');
+      if (currentConversation !== conversation.current) return;
       setMessages([...next, { role: 'assistant', content: data.reply }]);
-    } catch (err) { setMessages([...next, { role: 'assistant', content: `Oh! ${err.message}` }]); }
-    finally { setLoading(false); input.current?.focus(); }
+      voice.speak(data.reply, true);
+    } catch (err) { if (currentConversation === conversation.current) setMessages([...next, { role: 'assistant', content: `Oh! ${err.message}` }]); }
+    finally { if (currentConversation === conversation.current) { setLoading(false); input.current?.focus(); } }
   }
 
-  function newChat() { setMessages([]); setMenu(false); }
+  function newChat() { conversation.current += 1; voice.stopAll(); setMessages([]); setDraft(''); setLoading(false); setMenu(false); }
   async function copyLast() { const last = [...messages].reverse().find(m => m.role === 'assistant'); if (last) { await navigator.clipboard?.writeText(last.content); setCopied(true); setTimeout(() => setCopied(false), 1400); } }
 
   return <div className="app-shell">
@@ -74,7 +85,31 @@ function App() {
 
       <footer className="composer-area">
         {!status?.configured && <button className="setup-hint" onClick={() => setPanel('setup')}><span>✨</span> Peppy’s nearly ready — connect an API key to start chatting <ChevronRight size={15}/></button>}
-        <form className="composer" onSubmit={e => { e.preventDefault(); send(); }}><textarea ref={input} rows="1" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Say whatever’s on your mind…" aria-label="Your message"/><div className="composer-bottom"><span className="composer-note"><Sparkles size={13}/> Your chats stay on this device</span><button className={`send-button ${draft.trim() ? 'ready' : ''}`} type="submit" disabled={!draft.trim() || loading} aria-label="Send message"><ArrowUp size={19}/></button></div></form>
+        <form className="composer" onSubmit={e => { e.preventDefault(); send(); }}>
+          <textarea ref={input} rows="1" value={draft} readOnly={voice.listening} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Say whatever’s on your mind…" aria-label="Your message"/>
+          <div className="composer-bottom">
+            <span className="composer-note"><Sparkles size={13}/> Your chats stay on this device</span>
+            <div className="composer-actions">
+              <button className={`voice-button ${spokenReplies ? 'active' : ''}`} type="button" aria-label="Spoken replies" aria-pressed={spokenReplies} disabled={!voice.canSpeak} title={voice.canSpeak ? 'Turn spoken replies on or off' : 'Spoken replies are not supported in this browser'} onClick={() => setSpokenReplies(!spokenReplies)}>{spokenReplies ? <Volume2 size={18}/> : <VolumeX size={18}/>}</button>
+              <button className={`voice-button ${voice.listening ? 'active' : ''}`} type="button" aria-label={voice.listening ? 'Stop microphone' : 'Start microphone'} aria-pressed={voice.listening} disabled={loading} onClick={() => voice.listening ? voice.stopListening() : voice.startListening(draft)}>{voice.listening ? <Square size={16}/> : <Mic size={18}/>}</button>
+              <button className={`send-button ${draft.trim() ? 'ready' : ''}`} type="submit" disabled={!draft.trim() || loading || voice.listening} aria-label="Send message"><ArrowUp size={19}/></button>
+            </div>
+          </div>
+        </form>
+        <div className="voice-info">
+          <span role="status">{voice.listening ? 'Listening... tap stop when done, then review and send.' : voice.preparing ? 'Preparing Peppy’s voice...' : voice.speaking ? 'Peppy is speaking...' : 'Tap the mic to dictate. Turn on the speaker for spoken replies.'}</span>
+          {voice.speaking || voice.preparing ? <button type="button" onClick={voice.stopSpeaking}>Stop speaking</button> : lastReply && voice.canSpeak && <button type="button" disabled={loading || voice.listening} onClick={() => voice.speak(lastReply.content)}>Read last reply</button>}
+        </div>
+        <div className="voice-picker">
+          <label htmlFor="speech-voice">Peppy’s voice</label>
+          <select id="speech-voice" value={selectedVoice} onChange={e => setSelectedVoice(e.target.value)}>{speechVoices.map(option => <option key={option} value={option}>{option[0].toUpperCase() + option.slice(1)}</option>)}</select>
+          <button type="button" disabled={!voice.canSpeak || loading || voice.listening || voice.preparing || voice.speaking} onClick={() => voice.speak('Hey, I’m Peppy, your pocket pal. What’s on your mind today?')}>Preview voice</button>
+        </div>
+        <p className="voice-help">Peppy’s voice is AI-generated by OpenAI, not a human. Spoken replies and previews incur additional API charges.</p>
+        {voice.error && <p className="voice-error" role="alert">{voice.error}</p>}
+        {!voice.canListen && <p className="voice-help">Voice input requires a supported browser and HTTPS (or localhost). Text chat is still available.</p>}
+        {!voice.canSpeak && <p className="voice-help">This browser does not support spoken replies. Replies will appear as text.</p>}
+        <p className="voice-help">Your browser may send microphone audio to its speech service. Voice availability varies by phone and browser.</p>
         <p className="fineprint">Peppy is AI and can get things wrong. For important decisions, check with a pro.</p>
       </footer>
     </main>
