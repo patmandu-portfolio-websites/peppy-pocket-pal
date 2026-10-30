@@ -1,0 +1,9 @@
+{
+  "name": "pocket-pal",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "concurrently \"npm:server\" \"npm:client\"", "client": "vite --host 0.0.0.0", "server": "node server.js", "build": "vite build", "start": "node server.js" },
+  "dependencies": { "@vitejs/plugin-react": "latest", "concurrently": "latest", "dotenv": "latest", "express": "latest", "lucide-react": "latest", "openai": "latest", "react": "latest", "react-dom": "latest", "vite": "latest" },
+  "devDependencies": {}
+}
