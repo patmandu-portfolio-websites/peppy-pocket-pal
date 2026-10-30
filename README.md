@@ -22,7 +22,9 @@ The API key is read by the server and is never sent to the browser. API usage ma
 
 ## Voice chat
 
-- Tap the microphone beside Send and allow microphone/speech recognition access. Speak, wait for recognition to finish (or tap Stop), review the transcript, then send it. Speech is never sent as a chat message automatically.
+- Tap the microphone beside Send and allow microphone/speech recognition access. Speak, wait for recognition to finish (or tap Stop), review the transcript, then send it.
+- Optionally turn on **Enable "Peppy, send" voice command** (off by default, saved on this browser). While dictating, finish with **Peppy, send** to send the message immediately once recognition confirms the words. The command is removed from the message; an existing typed draft is included. An empty message is never sent. Without this option, dictated words always remain in the draft for review. Recognition can mishear you; leave the option off if you want to review every message.
+- This is not a wake word: you must tap the microphone first. The command only works while recognition is active, not in the background, and does not automatically restart the microphone after a reply.
 - Tap the speaker button to enable automatic spoken replies. The preference is saved on this browser; it starts off. Use **Read last reply** to replay a response or **Stop speaking** to interrupt it.
 - Choose **Peppy's voice** and use **Preview voice** to hear a sample. Marin is the default; Marin and Cedar are recommended for quality. The selected voice is saved on this browser. Changing voices cancels current playback.
 - Starting the microphone stops playback so Peppy does not dictate its own voice. Leaving the tab or starting a new chat stops microphone input and playback.

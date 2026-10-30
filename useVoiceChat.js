@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { parseVoiceSend } from './voiceCommand';
 
 const recognitionErrors = {
   'not-allowed': 'Microphone access was denied. Allow microphone and speech recognition access in your browser settings, then try again.',
@@ -9,7 +10,7 @@ const recognitionErrors = {
   'language-not-supported': 'Speech recognition does not support your browser language. Try another browser language.'
 };
 
-export function useVoiceChat({ enabled, selectedVoice, onTranscript }) {
+export function useVoiceChat({ enabled, selectedVoice, voiceSendEnabled, onTranscript, onVoiceSend }) {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const canListen = Boolean(Recognition) && window.isSecureContext;
   const canSpeak = 'Audio' in window;
@@ -23,6 +24,8 @@ export function useVoiceChat({ enabled, selectedVoice, onTranscript }) {
   selectedVoiceRef.current = selectedVoice;
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
+  const voiceSendRef = useRef({ enabled: voiceSendEnabled, send: onVoiceSend });
+  voiceSendRef.current = { enabled: voiceSendEnabled, send: onVoiceSend };
 
   function stopSpeaking() {
     const active = playback.current;
@@ -66,9 +69,14 @@ export function useVoiceChat({ enabled, selectedVoice, onTranscript }) {
     let failed = false;
     active.onresult = event => {
       if (recognition.current !== active) return;
-      const transcript = Array.from(event.results, result => result[0].transcript).join(' ').trim();
-      heardSpeech = Boolean(transcript);
-      onTranscript([draft.trim(), transcript].filter(Boolean).join(' '));
+      const result = parseVoiceSend(event.results, draft, voiceSendRef.current.enabled);
+      heardSpeech = event.results.length > 0;
+      onTranscript(result.text);
+      if (result.command) {
+        stopListening();
+        if (result.text) voiceSendRef.current.send(result.text);
+        else setError('There is no message to send. Dictate a message before saying "Peppy, send".');
+      }
     };
     active.onerror = event => {
       if (recognition.current !== active) return;
