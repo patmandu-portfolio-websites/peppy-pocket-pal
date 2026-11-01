@@ -3,7 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronRight, Heart, Menu, MessageCircle, Mic, Plus, Settings2, Sparkles, Square, Trash2, Volume2, VolumeX, X } from 'lucide-react';
 import { useVoiceChat } from './useVoiceChat';
 import { defaultVoice, speechVoices } from './voiceOptions';
+import { LocalAssistantPanel, localRequest } from './LocalAssistantPanel';
 import './style.css';
+import { LearningPanel } from './LearningPanel.jsx';
+import { emptyLearning, learningKey, learningContext } from './learning.js';
 
 const KEY = 'peppy-state-v1';
 const firstState = { messages: [], memory: '', name: '', spokenReplies: false, selectedVoice: defaultVoice };
@@ -28,35 +31,77 @@ function App() {
   const [panel, setPanel] = useState('');
   const [menu, setMenu] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [localEnabled, setLocalEnabled] = useState(false);
+  const [localTask, setLocalTask] = useState(null);
+  const [learningError, setLearningError] = useState('');
+  const [learning, setLearning] = useState(emptyLearning);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(learningKey);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (!Array.isArray(data.entries) || !Array.isArray(data.suggestions) || typeof data.enabled !== 'boolean' || typeof data.suggestionsEnabled !== 'boolean') throw new Error('Invalid stored learning data.');
+        setLearning(data);
+      }
+    } catch (cause) { setLearningError(`Learning data could not be loaded: ${cause.message}. It has not been overwritten.`); }
+  }, []);
+  function saveLearning(value) {
+    localStorage.setItem(learningKey, JSON.stringify(value));
+    setLearning(value);
+  }
   const tail = useRef(null);
   const input = useRef(null);
   const conversation = useRef(0);
   const voice = useVoiceChat({ enabled: spokenReplies, selectedVoice, voiceSendEnabled, onTranscript: setDraft, onVoiceSend: send });
   const lastReply = [...messages].reverse().find(m => m.role === 'assistant');
   useEffect(() => { localStorage.setItem(KEY, JSON.stringify({ messages, memory, name, spokenReplies, selectedVoice, voiceSendEnabled })); }, [messages, memory, name, spokenReplies, selectedVoice, voiceSendEnabled]);
-  useEffect(() => { fetch('/api/status').then(r => r.json()).then(setStatus).catch(() => setStatus({ configured: false })); }, []);
+  useEffect(() => { fetch('/api/status').then(r => { if (!r.ok) throw new Error('Status unavailable'); return r.json(); }).then(setStatus).catch(() => setStatus({ unavailable: true })); }, []);
   useEffect(() => { tail.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [messages, loading]);
   useEffect(() => { if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {}); }, []);
 
   async function send(text = draft) {
-    const content = text.trim(); if (!content || loading) return;
+    const content = text.trim(); if (!content || loading || (localEnabled && (localTask?.pending || localTask?.canContinue))) return;
     voice.stopAll();
     const currentConversation = conversation.current;
     const next = [...messages, { role: 'user', content }];
     setMessages(next); setDraft(''); setLoading(true);
     try {
-      const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: next.slice(-16), memory: [name && `The user's name is ${name}.`, memory].filter(Boolean).join('\n') }) });
+      const response = await fetch(localEnabled ? '/api/local/chat' : '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: next.slice(-16), memory: [name && `The user's name is ${name}.`, memory.slice(0, 1600), learningContext(learning)].filter(Boolean).join('\n') }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Something went wrong.');
       if (currentConversation !== conversation.current) return;
+      if (localEnabled) setLocalTask(data);
       setMessages([...next, { role: 'assistant', content: data.reply }]);
       voice.speak(data.reply, true);
     } catch (err) { if (currentConversation === conversation.current) setMessages([...next, { role: 'assistant', content: `Oh! ${err.message}` }]); }
     finally { if (currentConversation === conversation.current) { setLoading(false); input.current?.focus(); } }
   }
 
-  function newChat() { conversation.current += 1; voice.stopAll(); setMessages([]); setDraft(''); setLoading(false); setMenu(false); }
+  async function localAction(approved) {
+    if (loading || !localTask) return;
+    const currentConversation = conversation.current;
+    voice.stopAll(); setLoading(true);
+    try {
+      const data = approved === undefined
+        ? await localRequest('/api/local/continue', { sessionId: localTask.sessionId })
+        : await localRequest('/api/local/approval', { sessionId: localTask.sessionId, approvalId: localTask.pending.id, approved });
+      if (currentConversation !== conversation.current) return;
+      setLocalTask(data);
+      setMessages(previous => [...previous, { role: 'assistant', content: data.reply }]);
+      if (!data.pending && !data.result) voice.speak(data.reply, true);
+    } catch (cause) {
+      if (currentConversation === conversation.current) setMessages(previous => [...previous, { role: 'assistant', content: `Local assistant error: ${cause.message}` }]);
+    } finally { if (currentConversation === conversation.current) setLoading(false); }
+  }
+
+  function newChat() { conversation.current += 1; voice.stopAll(); setLocalTask(null); setMessages([]); setDraft(''); setLoading(false); setMenu(false); }
   async function copyLast() { const last = [...messages].reverse().find(m => m.role === 'assistant'); if (last) { await navigator.clipboard?.writeText(last.content); setCopied(true); setTimeout(() => setCopied(false), 1400); } }
+
+  if (!status || status.unavailable) return <main className="app-shell"><section className="side-panel"><p role="status">{status?.unavailable ? 'Peppy could not verify server access. Reload to retry.' : 'Checking Peppy access...'}</p></section></main>;
+  if (status?.authenticationRequired && !status.signedIn) return <main className="app-shell"><section className="side-panel">
+    <h1>Sign in to Peppy</h1><p>Only the approved Google account may use this hosted installation. Google sign-in does not grant Gmail access.</p>
+    <a href="/api/auth/google">Continue with Google</a>
+  </section></main>;
 
   return <div className="app-shell">
     <aside className="rail">
@@ -68,6 +113,13 @@ function App() {
     </aside>
     <main className="main">
       <header className="topbar">
+        {status?.authenticationRequired && status.signedIn && <button type="button" onClick={async () => {
+          try {
+            const response = await fetch('/api/auth/logout', { method: 'POST' });
+            if (!response.ok) throw new Error('Logout failed; retry.');
+            window.location.reload();
+          } catch (cause) { setLearningError(cause.message); }
+        }}>Sign out</button>}
         <div className="mobile-brand"><span className="tiny-mark">p</span><span>peppy</span></div>
         <button className="top-title" onClick={() => setPanel('settings')}>Your pocket pal <ChevronRight size={15}/></button>
         <div className="top-actions"><span className="online"><i/> here with you</span><button className="icon-button mobile-menu" aria-label="Open menu" onClick={() => setMenu(!menu)}><Menu size={20}/></button><button className="icon-button desktop-settings" aria-label="Preferences" onClick={() => setPanel('settings')}><Settings2 size={19}/></button></div>
@@ -85,15 +137,18 @@ function App() {
       </section>
 
       <footer className="composer-area">
-        {!status?.configured && <button className="setup-hint" onClick={() => setPanel('setup')}><span>✨</span> Peppy’s nearly ready — connect an API key to start chatting <ChevronRight size={15}/></button>}
+        <details><summary>Learning, knowledge and improvement suggestions</summary>{learningError ? <p role="alert">{learningError}</p> : <LearningPanel state={learning} save={saveLearning}/>}</details>
+        {status?.localAssistant && <LocalAssistantPanel enabled={localEnabled} onToggle={value => { voice.stopAll(); setLocalEnabled(value); setLocalTask(null); }} task={localTask} busy={loading} onApproval={localAction} onContinue={() => localAction()}/>}
+        {localEnabled && (localTask?.pending || localTask?.canContinue) && <p className="voice-help" role="status">Review the local action or result before sending another message, or start a new chat.</p>}
+        {!status?.configured && (status?.localAssistant ? <p className="voice-error" role="alert">{status.credentialSetup || 'Configure the local API key and restart the companion.'}</p> : <button className="setup-hint" onClick={() => setPanel('setup')}><span>✨</span> Peppy’s nearly ready — connect an API key to start chatting <ChevronRight size={15}/></button>)}
         <form className="composer" onSubmit={e => { e.preventDefault(); send(); }}>
           <textarea ref={input} rows="1" value={draft} readOnly={voice.listening} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Say whatever’s on your mind…" aria-label="Your message"/>
           <div className="composer-bottom">
             <span className="composer-note"><Sparkles size={13}/> Your chats stay on this device</span>
             <div className="composer-actions">
               <button className={`voice-button ${spokenReplies ? 'active' : ''}`} type="button" aria-label="Spoken replies" aria-pressed={spokenReplies} disabled={!voice.canSpeak} title={voice.canSpeak ? 'Turn spoken replies on or off' : 'Spoken replies are not supported in this browser'} onClick={() => setSpokenReplies(!spokenReplies)}>{spokenReplies ? <Volume2 size={18}/> : <VolumeX size={18}/>}</button>
-              <button className={`voice-button ${voice.listening ? 'active' : ''}`} type="button" aria-label={voice.listening ? 'Stop microphone' : 'Start microphone'} aria-pressed={voice.listening} disabled={loading} onClick={() => voice.listening ? voice.stopListening() : voice.startListening(draft)}>{voice.listening ? <Square size={16}/> : <Mic size={18}/>}</button>
-              <button className={`send-button ${draft.trim() ? 'ready' : ''}`} type="submit" disabled={!draft.trim() || loading || voice.listening} aria-label="Send message"><ArrowUp size={19}/></button>
+              <button className={`voice-button ${voice.listening ? 'active' : ''}`} type="button" aria-label={voice.listening ? 'Stop microphone' : 'Start microphone'} aria-pressed={voice.listening} disabled={loading || (localEnabled && Boolean(localTask?.pending || localTask?.canContinue))} onClick={() => voice.listening ? voice.stopListening() : voice.startListening(draft)}>{voice.listening ? <Square size={16}/> : <Mic size={18}/>}</button>
+              <button className={`send-button ${draft.trim() ? 'ready' : ''}`} type="submit" disabled={!draft.trim() || loading || voice.listening || (localEnabled && Boolean(localTask?.pending || localTask?.canContinue))} aria-label="Send message"><ArrowUp size={19}/></button>
             </div>
           </div>
         </form>

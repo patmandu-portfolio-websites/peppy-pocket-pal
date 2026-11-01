@@ -4,19 +4,30 @@ import OpenAI from 'openai';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createSpeechHandler } from './speech.js';
+import { learningHandler } from './learningApi.js';
+import { OAuth2Client } from 'google-auth-library';
+import { Firestore } from '@google-cloud/firestore';
+import { authConfig, FirestoreAuthStore, installHostedAuth } from './hostedAuth.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const here = path.dirname(fileURLToPath(import.meta.url));
 app.use(express.json({ limit: '32kb' }));
+const hosted = authConfig(process.env);
+if (hosted) {
+  const database = new Firestore({ projectId: process.env.GOOGLE_CLOUD_PROJECT });
+  const oauth = new OAuth2Client(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, hosted.callback);
+  installHostedAuth(app, { config: hosted, oauth, store: new FirestoreAuthStore(database) });
+}
 
-app.get('/api/status', (_req, res) => res.json({ configured: Boolean(process.env.OPENAI_API_KEY) }));
+app.get('/api/status', (req, res) => res.json({ configured: Boolean(process.env.OPENAI_API_KEY), authenticationRequired: Boolean(hosted), signedIn: req.hostedSignedIn === true }));
 app.post('/api/speech', createSpeechHandler(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })));
+app.post('/api/learning/propose', learningHandler(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })));
 
 app.post('/api/chat', async (req, res) => {
   if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'Add your OpenAI API key to the .env file to bring Peppy to life.' });
   const messages = Array.isArray(req.body?.messages) ? req.body.messages.slice(-16) : [];
-  const memory = typeof req.body?.memory === 'string' ? req.body.memory.slice(0, 1600) : '';
+  const memory = typeof req.body?.memory === 'string' ? req.body.memory.slice(0, 14000) : '';
   if (!messages.length || messages.some(m => !['user', 'assistant'].includes(m.role) || typeof m.content !== 'string')) return res.status(400).json({ error: 'Send a valid chat message to Peppy.' });
   try {
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });

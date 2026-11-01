@@ -3,7 +3,30 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "concurrently \"npm:server\" \"npm:client\"", "client": "vite --host 0.0.0.0", "server": "node server.js", "build": "vite build", "start": "node server.js" },
-  "dependencies": { "@vitejs/plugin-react": "latest", "concurrently": "latest", "dotenv": "latest", "express": "latest", "lucide-react": "latest", "openai": "latest", "react": "latest", "react-dom": "latest", "vite": "latest" },
-  "devDependencies": {}
+  "scripts": {
+    "dev": "concurrently \"npm:server\" \"npm:client\"",
+    "client": "vite --host 0.0.0.0",
+    "server": "node server.js",
+    "build": "vite build",
+    "start": "node server.js",
+    "local": "node localServer.js",
+    "test": "node --test *.test.js"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^9.4.0",
+    "@vitejs/plugin-react": "latest",
+    "concurrently": "latest",
+    "diff": "^8.0.2",
+    "dotenv": "latest",
+    "express": "latest",
+    "google-auth-library": "^11.3.2",
+    "lucide-react": "latest",
+    "openai": "latest",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.2.108",
+    "playwright": "^1.56.1",
+    "react": "latest",
+    "react-dom": "latest",
+    "vite": "latest"
+  }
 }
