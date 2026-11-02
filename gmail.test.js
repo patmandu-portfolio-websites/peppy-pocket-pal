@@ -287,6 +287,26 @@ test('built Gmail UI requires separate consent, previews choice, pause, test and
   await page.goto(f.base);
   await page.getByText('Gmail desktop notifications — this computer only', { exact: true }).click();
   await page.getByText('Connected, paused', { exact: false }).waitFor();
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const layout = await page.evaluate(() => {
+      const composer = document.querySelector('.composer');
+      const panel = document.querySelector('.gmail-panel');
+      const input = panel.querySelector('input:not([type=checkbox])');
+      return {
+        ordered: Boolean(composer.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING),
+        separated: composer.getBoundingClientRect().bottom <= panel.getBoundingClientRect().top,
+        overflow: document.documentElement.scrollWidth > window.innerWidth,
+        cardRadius: getComputedStyle(panel).borderRadius,
+        inputSize: parseFloat(getComputedStyle(input).fontSize)
+      };
+    });
+    assert.equal(layout.ordered, true);
+    assert.equal(layout.separated, true);
+    assert.equal(layout.overflow, false);
+    assert.equal(layout.cardRadius, '17px');
+    if (width <= 700) assert.ok(layout.inputSize >= 16);
+  }
   await page.getByLabel('Gmail rule value', { exact: true }).fill('school@example.test');
   await page.getByRole('button', { name: 'Add Gmail watch rule', exact: true }).click();
   await page.getByRole('button', { name: 'Remove Gmail rule school@example.test', exact: true }).waitFor();
@@ -294,6 +314,16 @@ test('built Gmail UI requires separate consent, previews choice, pause, test and
   await page.getByRole('button', { name: 'Remove Gmail rule Baverstock Oaks', exact: true }).click();
   await page.getByRole('button', { name: 'Remove Gmail rule Baverstock Oaks', exact: true }).waitFor({ state: 'detached' });
   assert.deepEqual((await f.status()).rules, [{ kind: 'address', value: 'school@example.test' }]);
+  await page.getByRole('button', { name: 'Edit Gmail rule school@example.test', exact: true }).click();
+  await page.getByLabel('Gmail rule type', { exact: true }).selectOption('subject');
+  await page.getByLabel('Gmail rule value', { exact: true }).fill('School newsletter');
+  await page.getByRole('button', { name: 'Save Gmail watch rule', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit Gmail rule School newsletter', exact: true }).waitFor();
+  assert.deepEqual((await f.status()).rules, [{ kind: 'subject', value: 'School newsletter' }]);
+  await page.getByRole('button', { name: 'Edit Gmail rule School newsletter', exact: true }).click();
+  await page.getByLabel('Gmail rule value', { exact: true }).fill('Unsaved change');
+  await page.getByRole('button', { name: 'Cancel rule edit', exact: true }).click();
+  assert.deepEqual((await f.status()).rules, [{ kind: 'subject', value: 'School newsletter' }]);
   await page.getByRole('button', { name: 'Send fictional desktop notification test' }).click();
   await page.getByText('Notification submitted to this desktop.', { exact: false }).waitFor();
   assert.equal(f.notices.length, 1);

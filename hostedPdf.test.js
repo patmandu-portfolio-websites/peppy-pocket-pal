@@ -237,6 +237,23 @@ test('built hosted PDF UI uploads, previews, fills and deletes using explicit bu
   await page.route('**/*', route => route.request().url().startsWith(base) ? route.continue() : route.abort());
   await page.goto(base);
   await page.getByText('Private hosted PDF forms', { exact: true }).click();
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const layout = await page.evaluate(() => {
+      const composer = document.querySelector('.composer');
+      const panel = document.querySelector('.pdf-panel');
+      return {
+        ordered: Boolean(composer.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING),
+        separated: composer.getBoundingClientRect().bottom <= panel.getBoundingClientRect().top,
+        overflow: document.documentElement.scrollWidth > window.innerWidth,
+        radius: getComputedStyle(panel).borderRadius
+      };
+    });
+    assert.equal(layout.ordered, true);
+    assert.equal(layout.separated, true);
+    assert.equal(layout.overflow, false);
+    assert.equal(layout.radius, '17px');
+  }
   await page.getByLabel('Select PDF to upload').setInputFiles({ name: 'form.pdf', mimeType: 'application/pdf', buffer: input });
   await page.getByRole('button', { name: 'Approve uploading selected PDF' }).click();
   await page.getByLabel('Exact PDF field values as JSON').fill('{"Name":"Hosted answer"}');

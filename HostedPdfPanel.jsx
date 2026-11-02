@@ -27,13 +27,14 @@ export default function HostedPdfPanel() {
     setBusy(true); setError('');
     try { await run(); } catch (cause) { setError(cause.message); } finally { setBusy(false); }
   }
-  return <details>
+  return <details className="feature-panel pdf-panel">
     <summary>Private hosted PDF forms</summary>
+    <div className="feature-panel-body">
     <p>Cloud processing, not the Ubuntu sandbox. PDF contents are not sent to OpenAI. Fillable AcroForms only, up to 10 MiB / 50 pages. Signed, encrypted and XFA PDFs are unsupported.</p>
     {!enabled && <p>Uploads disabled pending storage and scheduled-cleanup verification.</p>}
     <p>Access expires after 23 hours, leaving a cleanup buffer before the 24-hour retention target. Physical deletion depends on the scheduled worker; failures require operator intervention. Delete now when finished. Do not upload highly sensitive documents until live retention tests pass.</p>
     <button type="button" disabled={!enabled || busy} onClick={() => action(async () => setJobs((await request('/api/pdf')).jobs))}>Refresh my document jobs</button>
-    {jobs.map(item => <div key={item.id}>
+    {jobs.map(item => <div className="feature-job" key={item.id}>
       <span>{item.id} — {item.status}, expires {new Date(item.expires).toLocaleString()} </span>
       <button type="button" disabled={busy || item.status !== 'ready' || item.expires <= Date.now()} onClick={() => action(async () => {
         const restored = await request(`/api/pdf/${item.id}`);
@@ -77,5 +78,6 @@ export default function HostedPdfPanel() {
       })}>Delete input and output now</button>
     </>}
     {error && <p role="alert">{error}</p>}
+    </div>
   </details>;
 }

@@ -11,6 +11,7 @@ export async function fetchAuthorized(policy, value, maxBytes = 2 * 1024 * 1024,
     // Pin the approved DNS result; the HTTP client must not resolve it a second time.
     const request = https.request(url, {
       agent: false,
+      signal: options.signal,
       method: options.method || 'GET',
       lookup: (_hostname, options, callback) => options.all ? callback(null, [target]) : callback(null, target.address, target.family),
       headers: { 'User-Agent': 'PeppyLocal/1.0', Accept: 'text/html,text/plain,application/json,*/*', ...options.headers }

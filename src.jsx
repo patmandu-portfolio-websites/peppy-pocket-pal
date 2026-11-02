@@ -9,6 +9,7 @@ import { LearningPanel } from './LearningPanel.jsx';
 import { emptyLearning, learningKey, learningContext } from './learning.js';
 const HostedPdfPanel = lazy(() => import('./HostedPdfPanel.jsx'));
 const GmailPanel = lazy(() => import('./GmailPanel.jsx'));
+const ResearchPanel = lazy(() => import('./ResearchPanel.jsx'));
 
 const KEY = 'peppy-state-v1';
 const firstState = { messages: [], memory: '', name: '', spokenReplies: false, selectedVoice: defaultVoice };
@@ -139,12 +140,6 @@ function App() {
       </section>
 
       <footer className="composer-area">
-        {status?.localAssistant && <Suspense fallback={<p>Loading Gmail controls...</p>}><GmailPanel/></Suspense>}
-        {status.authenticationRequired && status.signedIn && <Suspense fallback={<p>Loading document controls...</p>}><HostedPdfPanel/></Suspense>}
-        <details><summary>Learning, knowledge and improvement suggestions</summary>{learningError ? <p role="alert">{learningError}</p> : <LearningPanel state={learning} save={saveLearning}/>}</details>
-        {status?.localAssistant && <LocalAssistantPanel enabled={localEnabled} onToggle={value => { voice.stopAll(); setLocalEnabled(value); setLocalTask(null); }} task={localTask} busy={loading} onApproval={localAction} onContinue={() => localAction()}/>}
-        {localEnabled && (localTask?.pending || localTask?.canContinue) && <p className="voice-help" role="status">Review the local action or result before sending another message, or start a new chat.</p>}
-        {!status?.configured && (status?.localAssistant ? <p className="voice-error" role="alert">{status.credentialSetup || 'Configure the local API key and restart the companion.'}</p> : <button className="setup-hint" onClick={() => setPanel('setup')}><span>✨</span> Peppy’s nearly ready — connect an API key to start chatting <ChevronRight size={15}/></button>)}
         <form className="composer" onSubmit={e => { e.preventDefault(); send(); }}>
           <textarea ref={input} rows="1" value={draft} readOnly={voice.listening} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Say whatever’s on your mind…" aria-label="Your message"/>
           <div className="composer-bottom">
@@ -156,6 +151,8 @@ function App() {
             </div>
           </div>
         </form>
+        {localEnabled && (localTask?.pending || localTask?.canContinue) && <p className="voice-help" role="status">Review the local action or result before sending another message, or start a new chat.</p>}
+        {!status?.configured && (status?.localAssistant ? <p className="voice-error" role="alert">{status.credentialSetup || 'Configure the local API key and restart the companion.'}</p> : <button className="setup-hint" onClick={() => setPanel('setup')}><span>✨</span> Peppy’s nearly ready — connect an API key to start chatting <ChevronRight size={15}/></button>)}
         <div className="voice-info">
           <span role="status">{voice.listening ? (voiceSendEnabled ? 'Listening... finish with “Peppy, send” to send your message.' : 'Listening... tap stop when done, then review and send.') : voice.preparing ? 'Preparing Peppy’s voice...' : voice.speaking ? 'Peppy is speaking...' : 'Tap the mic to dictate. Turn on the speaker for spoken replies.'}</span>
           {voice.speaking || voice.preparing ? <button type="button" onClick={voice.stopSpeaking}>Stop speaking</button> : lastReply && voice.canSpeak && <button type="button" disabled={loading || voice.listening} onClick={() => voice.speak(lastReply.content)}>Read last reply</button>}
@@ -173,6 +170,13 @@ function App() {
         {!voice.canSpeak && <p className="voice-help">This browser does not support spoken replies. Replies will appear as text.</p>}
         <p className="voice-help">Your browser may send microphone audio to its speech service. Voice availability varies by phone and browser.</p>
         <p className="fineprint">Peppy is AI and can get things wrong. For important decisions, check with a pro.</p>
+        <div className="companion-panels">
+          {status?.downtimeResearch && !learningError && <Suspense fallback={<p>Loading research controls...</p>}><ResearchPanel learning={learning} saveLearning={saveLearning} chatBusy={loading || Boolean(draft.trim()) || voice.listening || voice.preparing || voice.speaking || Boolean(localTask?.pending || localTask?.canContinue)} spokenReplies={spokenReplies} speakInvitation={text => voice.speak(text, true)} prepareConversation={text => { setDraft(text); input.current?.focus(); }}/></Suspense>}
+          {status?.localAssistant && <Suspense fallback={<p>Loading Gmail controls...</p>}><GmailPanel/></Suspense>}
+          {status.authenticationRequired && status.signedIn && <Suspense fallback={<p>Loading document controls...</p>}><HostedPdfPanel/></Suspense>}
+          <details className="feature-panel"><summary>Learning, knowledge and improvement suggestions</summary><div className="feature-panel-body">{learningError ? <p role="alert">{learningError}</p> : <LearningPanel state={learning} save={saveLearning}/>}</div></details>
+          {status?.localAssistant && <LocalAssistantPanel enabled={localEnabled} onToggle={value => { voice.stopAll(); setLocalEnabled(value); setLocalTask(null); }} task={localTask} busy={loading} onApproval={localAction} onContinue={() => localAction()}/>}
+        </div>
       </footer>
     </main>
     {menu && <div className="mobile-drawer"><button onClick={newChat}><Plus size={16}/> New chat</button><button onClick={() => { setMenu(false); setPanel('memory'); }}><Heart size={16}/> Your memories</button><button onClick={() => { setMenu(false); setPanel('settings'); }}><Settings2 size={16}/> Preferences</button></div>}

@@ -31,7 +31,7 @@ export function PdfPreview({ id, url }) {
     })().catch(cause => { if (!cancelled) setError(`PDF preview failed: ${cause.message}`); });
     return () => { cancelled = true; render?.cancel(); void task.destroy(); };
   }, [id, url, page]);
-  return <div>
+  return <div className="pdf-preview">
     <p>Visual review only. Inspect every page before accepting the result; no automatic Windows export.</p>
     <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous page</button>
     <span> Page {page} of {pages || '?'} </span>
@@ -64,8 +64,9 @@ export function PdfPanel({ busy }) {
     void request('/api/local/pdf/approval', { id, approved }, data => setResult(data.declined ? null : data));
   }
   const disabled = busy || working || Boolean(pending);
-  return <details>
+  return <details className="feature-panel pdf-panel">
     <summary>PDF inspection and form filling — experimental</summary>
+    <div className="feature-panel-body">
     <p>Standard fillable PDFs only: 10 MiB, 50 pages. No OCR, signatures or general text extraction. Inputs stay unchanged. These manual actions do not send PDF content to AI.</p>
     <label>Absolute input PDF path <input value={source} onChange={event => setSource(event.target.value)} disabled={disabled}/></label>
     <button type="button" disabled={disabled || !source} onClick={() => propose('inspect_pdf')}>Propose PDF inspection</button>
@@ -74,7 +75,7 @@ export function PdfPanel({ busy }) {
       <textarea value={values} onChange={event => setValues(event.target.value)} disabled={disabled}/>
     </label>
     <button type="button" disabled={disabled || !source || !destination} onClick={() => propose('fill_pdf')}>Propose filling a new copy</button>
-    {pending && <div>
+    {pending && <div className="local-approval">
       <h3>Review PDF action before execution</h3>
       <pre>{JSON.stringify(pending.action, null, 2)}</pre>
       <p>Approval expires in five minutes. Filling creates a guest output, not a Windows export.</p>
@@ -83,5 +84,6 @@ export function PdfPanel({ busy }) {
     </div>}
     {result && <><pre>{JSON.stringify(result, null, 2)}</pre>{result.previewId && <PdfPreview id={result.previewId}/>}</>}
     {error && <p role="alert">{error}</p>}
+    </div>
   </details>;
 }

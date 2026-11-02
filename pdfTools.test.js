@@ -184,6 +184,8 @@ test('built PDF controls render approved source and filled output without sendin
   learning = await page.evaluate(() => JSON.parse(localStorage.getItem('peppy-learning-v1')));
   assert.equal(learning.entries.length, 0);
   await page.getByText('PDF inspection and form filling — experimental', { exact: true }).click();
+  assert.equal(await page.locator('.pdf-panel').evaluate(panel =>
+    Boolean(document.querySelector('.composer').compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING)), true);
   await page.getByLabel('Absolute input PDF path').fill(source);
   await page.getByRole('button', { name: 'Propose PDF inspection' }).click();
   await page.getByRole('button', { name: 'Approve PDF action' }).click();
