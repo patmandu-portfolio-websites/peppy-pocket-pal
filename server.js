@@ -8,6 +8,8 @@ import { learningHandler } from './learningApi.js';
 import { OAuth2Client } from 'google-auth-library';
 import { Firestore } from '@google-cloud/firestore';
 import { authConfig, FirestoreAuthStore, installHostedAuth } from './hostedAuth.js';
+import { Storage } from '@google-cloud/storage';
+import { CloudPdfStore, pdfService, installPdfRoutes, installPdfCleanup } from './hostedPdf.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -17,7 +19,22 @@ const hosted = authConfig(process.env);
 if (hosted) {
   const database = new Firestore({ projectId: process.env.GOOGLE_CLOUD_PROJECT });
   const oauth = new OAuth2Client(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, hosted.callback);
+  const bucketName = process.env.PEPPY_PDF_BUCKET;
+  const bucket = bucketName ? new Storage({ projectId: process.env.GOOGLE_CLOUD_PROJECT }).bucket(bucketName) : null;
+  if (process.env.PEPPY_PDF_ENABLED === '1') {
+    if (!bucket || !process.env.PEPPY_CLEANUP_ACCOUNT) throw new Error('PDF upload activation requires bucket and scheduled cleanup identity.');
+    const [metadata] = await bucket.getMetadata();
+    if (metadata.location?.toLowerCase() !== 'us-west1' || metadata.iamConfiguration?.publicAccessPrevention !== 'enforced' ||
+        !metadata.iamConfiguration?.uniformBucketLevelAccess?.enabled || metadata.versioning?.enabled ||
+        Number(metadata.softDeletePolicy?.retentionDurationSeconds || 0) > 0 || metadata.retentionPolicy) {
+      throw new Error('PDF bucket must be private, uniform-access us-west1 without versioning, soft deletion or a retention policy.');
+    }
+  }
+  const pdf = bucket ? pdfService(new CloudPdfStore(database, bucket)) : null;
+  installPdfCleanup(app, { service: pdf, oauth, account: process.env.PEPPY_CLEANUP_ACCOUNT, origin: hosted.origin });
   installHostedAuth(app, { config: hosted, oauth, store: new FirestoreAuthStore(database) });
+  if (pdf) installPdfRoutes(app, pdf, process.env.PEPPY_PDF_ENABLED === '1');
+  else app.get('/api/pdf/status', (_req, res) => res.json({ enabled: false }));
 }
 
 app.get('/api/status', (req, res) => res.json({ configured: Boolean(process.env.OPENAI_API_KEY), authenticationRequired: Boolean(hosted), signedIn: req.hostedSignedIn === true }));

@@ -5,16 +5,16 @@ import { localRequest } from './LocalAssistantPanel.jsx';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
-export function PdfPreview({ id }) {
+export function PdfPreview({ id, url }) {
   const canvas = useRef(null);
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(0);
   const [error, setError] = useState('');
-  useEffect(() => { setPage(1); }, [id]);
+  useEffect(() => { setPage(1); }, [id, url]);
   useEffect(() => {
     let cancelled = false;
     let render;
-    const task = getDocument({ url: `/api/local/pdf/preview/${id}`, isEvalSupported: false });
+    const task = getDocument({ url: url || `/api/local/pdf/preview/${id}`, isEvalSupported: false });
     setError('');
     (async () => {
       const document = await task.promise;
@@ -30,7 +30,7 @@ export function PdfPreview({ id }) {
       await render.promise;
     })().catch(cause => { if (!cancelled) setError(`PDF preview failed: ${cause.message}`); });
     return () => { cancelled = true; render?.cancel(); void task.destroy(); };
-  }, [id, page]);
+  }, [id, url, page]);
   return <div>
     <p>Visual review only. Inspect every page before accepting the result; no automatic Windows export.</p>
     <button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous page</button>

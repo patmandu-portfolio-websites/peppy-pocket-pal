@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import { authConfig, installHostedAuth } from './hostedAuth.js';
+import { installPdfRoutes } from './hostedPdf.js';
 
 test('Render authentication fails closed but local server stays opt-in', () => {
   assert.equal(authConfig({}), null);
@@ -30,6 +31,8 @@ test('Google login binds nonce/state, restricts account, expires and revokes ses
   const app = express();
   const config = { origin: 'https://peppy.example.com', email: 'owner@example.com', clientId: 'client' };
   installHostedAuth(app, { config, store, oauth, now: () => clock });
+  let uploadedOwner;
+  installPdfRoutes(app, { upload: async owner => { uploadedOwner = owner; return { uploaded: true }; } }, true);
   app.get('/api/private', (_req, res) => res.json({ private: true }));
   app.post('/api/private', (_req, res) => res.json({ private: true }));
   const server = app.listen(0, '127.0.0.1');
@@ -38,6 +41,7 @@ test('Google login binds nonce/state, restricts account, expires and revokes ses
   const base = `http://127.0.0.1:${server.address().port}`;
   const get = (url, headers = {}) => fetch(base + url, { headers, redirect: 'manual' });
   assert.equal((await get('/api/private')).status, 401);
+  assert.equal((await get('/api/pdf')).status, 401);
   async function begin() {
     const response = await get('/api/auth/google');
     const state = new URL(response.headers.get('location')).searchParams.get('state');
@@ -56,6 +60,10 @@ test('Google login binds nonce/state, restricts account, expires and revokes ses
   assert.match(cookies.join(' '), /Secure/);
   assert.match(cookies.join(' '), /HttpOnly/);
   assert.equal((await get('/api/private', { cookie: session })).status, 200);
+  assert.equal((await fetch(base + '/api/pdf', { method: 'POST', headers: { cookie: session, origin: 'https://evil.example', 'Content-Type': 'application/pdf' }, body: 'fixture' })).status, 403);
+  assert.equal(uploadedOwner, undefined);
+  assert.equal((await fetch(base + '/api/pdf', { method: 'POST', headers: { cookie: session, origin: config.origin, 'Content-Type': 'application/pdf' }, body: 'fixture' })).status, 200);
+  assert.equal(uploadedOwner, 'owner-sub');
   assert.equal((await get(`/api/auth/google/callback?state=${login.state}&code=test`, { cookie: login.cookie })).status, 400);
   assert.equal((await fetch(base + '/api/private', { method: 'POST', headers: { cookie: session, origin: 'https://evil.example' } })).status, 403);
   assert.equal((await fetch(base + '/api/auth/logout', { method: 'POST', headers: { cookie: session, origin: config.origin } })).status, 200);

@@ -99,7 +99,9 @@ export function installHostedAuth(app, { config, oauth, store, now = Date.now })
       req.hostedSignedIn = true;
       return next();
     }
-    if (!(await identity(req))) return res.status(401).json({ error: 'Sign in with your approved Google account first.' });
+    const user = await identity(req);
+    if (!user) return res.status(401).json({ error: 'Sign in with your approved Google account first.' });
+    req.hostedIdentity = user;
     if (!['GET', 'HEAD'].includes(req.method) && req.headers.origin !== config.origin) return res.status(403).json({ error: 'Cross-origin hosted actions are blocked.' });
     next();
   }));

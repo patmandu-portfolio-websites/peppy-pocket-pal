@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronRight, Heart, Menu, MessageCircle, Mic, Plus, Settings2, Sparkles, Square, Trash2, Volume2, VolumeX, X } from 'lucide-react';
 import { useVoiceChat } from './useVoiceChat';
@@ -7,6 +7,7 @@ import { LocalAssistantPanel, localRequest } from './LocalAssistantPanel';
 import './style.css';
 import { LearningPanel } from './LearningPanel.jsx';
 import { emptyLearning, learningKey, learningContext } from './learning.js';
+const HostedPdfPanel = lazy(() => import('./HostedPdfPanel.jsx'));
 
 const KEY = 'peppy-state-v1';
 const firstState = { messages: [], memory: '', name: '', spokenReplies: false, selectedVoice: defaultVoice };
@@ -137,6 +138,7 @@ function App() {
       </section>
 
       <footer className="composer-area">
+        {status.authenticationRequired && status.signedIn && <Suspense fallback={<p>Loading document controls...</p>}><HostedPdfPanel/></Suspense>}
         <details><summary>Learning, knowledge and improvement suggestions</summary>{learningError ? <p role="alert">{learningError}</p> : <LearningPanel state={learning} save={saveLearning}/>}</details>
         {status?.localAssistant && <LocalAssistantPanel enabled={localEnabled} onToggle={value => { voice.stopAll(); setLocalEnabled(value); setLocalTask(null); }} task={localTask} busy={loading} onApproval={localAction} onContinue={() => localAction()}/>}
         {localEnabled && (localTask?.pending || localTask?.canContinue) && <p className="voice-help" role="status">Review the local action or result before sending another message, or start a new chat.</p>}
