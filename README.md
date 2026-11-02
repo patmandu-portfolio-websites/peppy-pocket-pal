@@ -184,7 +184,7 @@ Select and validate an official MusicKit integration or a narrowly scoped browse
 
 Playback commands may execute under an explicitly enabled, revocable music-control permission; they must not grant file/email access. Block purchases, subscription/account changes, protected-track downloads and DRM bypasses. Test track selection, ambiguity handling, playback controls, permission revocation and visible errors in the actual supported environment before claiming compatibility.
 
-### Gmail desktop monitoring (initial implementation, live setup pending)
+### Gmail desktop monitoring (implemented; live desktop tests confirmed)
 
 The local companion now includes a separate **Gmail desktop notifications** panel. The selected design is independent Ubuntu and Windows monitors, authorized separately, with no VM-to-host relay, shared drives, phone delivery or synchronization. Windows can monitor while Ubuntu is off, provided its own companion is running. This supersedes the earlier proposal for a guest monitor plus Windows receiver. This feature is not installed into the existing guest by editing this repository and is not enabled on Render.
 
@@ -209,7 +209,42 @@ Pause retains the checkpoint; resume catches up while Gmail history is still ava
 
 Disconnect pauses checks, attempts Google revocation, removes the local credential and clears the checkpoint. If Google cannot confirm revocation, the panel explicitly directs you to remove the grant in your Google account's third-party connections. Revocation of shared/related Google grants can affect another installation; separate desktop clients are recommended but should not be represented as guaranteed revocation isolation. A later fresh connection starts a new monitoring period. Notifications already shown can remain in OS history.
 
-Validation: `npm run build`, then `npm test`; set `PEPPY_PDF_UI_TEST=1` to also run built-browser Gmail and PDF fixtures. Tests exercise matching, encoded headers, first-enable boundaries, pagination, duplicate suppression, restart/catch-up, expired history, revoked authorization, failed notifications, OAuth state/PKCE/scope checks, plaintext-token exclusion and separate UI consent. Real Gmail consent, keyring/DPAPI availability and visible delivery on **both** desktops still require live validation. No Gmail configuration, account authorization or service installation is performed by these source changes.
+Validation: `npm run build`, then `npm test`; set `PEPPY_PDF_UI_TEST=1` to also run built-browser Gmail and PDF fixtures. Tests exercise matching, encoded headers, first-enable boundaries, pagination, duplicate suppression, restart/catch-up, expired history, revoked authorization, failed notifications, OAuth state/PKCE/scope checks, plaintext-token exclusion and separate UI consent. The published Gmail milestone passed all 52 automated tests, the build and a zero-vulnerability dependency audit. Source changes alone do not configure or authorize cloud accounts or install the guest service.
+
+#### User-confirmed live validation (2026-11-02 to 2026-11-03, New Zealand time)
+
+- Separate **Peppy Gmail Windows** and **Peppy Gmail Ubuntu** Desktop OAuth clients were created; the Gmail API, metadata scope and intended test user were configured. Consent screens showed labels/headers, not email bodies.
+- Windows: the fictional desktop test and a new matching Gmail message both produced visible notifications.
+- Ubuntu: the updated source was transferred through the virtual CD, its SHA256 manifest verified, dependencies installed, tests/build passed, and the private Ubuntu client configured. Both fictional and real matching-message notifications were received.
+- Ubuntu's user service now starts `localServer.js` with `NODE_ENV=development` and `PEPPY_VM=1`. Its listener was verified as `127.0.0.1:3030`. The user confirmed Gmail tests still worked after reboot/login without manually starting Peppy.
+- Text matches allow other words around `Baverstock Oaks`, preserving the contiguous phrase and ignoring case. Each installation retains its own rules and checkpoint.
+
+Windows automatic startup/reboot persistence, live pause/resume/disconnect and revoked/expired-token recovery are not yet user-verified. Those failure paths have automated fixture coverage, not a guarantee of uninterrupted monitoring. Google Testing-mode token expiry and desktop/keyring availability remain operational limitations.
+
+#### Ubuntu companion startup configuration
+
+The current guest uses this user service; the later chat-only startup instructions are legacy and should not replace it:
+
+```ini
+[Unit]
+Description=Peppy personal assistant
+
+[Service]
+Type=simple
+WorkingDirectory=%h/peppy
+ExecStart=%h/.local/node/bin/node %h/peppy/localServer.js
+Environment=NODE_ENV=development
+Environment=PEPPY_VM=1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+Stop a manual companion first, save this in `~/.config/systemd/user/peppy.service`, then run `systemctl --user daemon-reload`, `systemctl --user enable peppy.service` and `systemctl --user restart peppy.service`. Check `systemctl --user status peppy.service --no-pager`, the loopback listener and **Check Gmail now** after login. Keep credentials out of the service and do not enable user lingering.
+
+For a future source-ISO update, stop Peppy and make a private backup of the installation and service configuration first. Backups can include private credentials and must remain protected inside the guest. Verify the disc's `SHA256SUMS` before copying and verify the installed files against the disc's manifest afterward. Earlier ISO copies left owner-owned source files read-only; inspect ownership before granting owner write permission only to listed source files and required destination directories. When reading a Windows-generated manifest in a shell loop, strip carriage returns with `tr -d '\r' < SHA256SUMS` so filenames resolve correctly. Never use blanket recursive permission changes or root-owned source copies to bypass a failed update. Preserve `.env` and `.peppy-local`, and keep Peppy stopped until verification succeeds.
 
 #### Original acceptance scope
 
@@ -221,15 +256,15 @@ Use Gmail OAuth with the least access needed and explicit consent, not passwords
 
 Provide pause/disconnect controls, protected token storage, minimal configurable notification previews, duplicate suppression and explicit monitoring/delivery errors. Persist a checkpoint so resumed monitoring can check for missed arrivals without repeatedly alerting for the same message. Each installation requires its own running, authorized companion with Internet and an active desktop session. Windows monitoring does not depend on the VM. This does not promise continuous monitoring or notification delivery to an offline desktop.
 
-Before release, test matching and nonmatching sender/subject cases, case handling, duplicate suppression, restart/catch-up behavior, revoked authorization and separate delivery to both desktops. Verify the granted scope cannot modify Gmail messages. Source wiring is implemented; Windows credentials/configuration are being prepared, while real Gmail consent, Google response behavior and visible desktop notifications remain unverified. Ubuntu still requires its own separate client file, dependency/keyring setup and live test.
+Before release, test matching and nonmatching sender/subject cases, case handling, duplicate suppression, restart/catch-up behavior, revoked authorization and separate delivery to both desktops. Verify the granted scope cannot modify Gmail messages. The live results and remaining checks are recorded above; do not equate successful notification tests with complete failure-path validation.
 
 Run `npm test` for voice, speech and local-tool tests. The existing Render build/start commands are unchanged; do not set Render's start command to `npm run local`.
 
 ### Deployment targets for expanded Step 4
 
-The user requested Ubuntu, Windows companion and hosted Render/phone feature availability, with **no synchronization between installations**. Shared browser learning/suggestion features can run on all three. Existing PDF filesystem actions require a local companion; hosted PDFs use the separate opt-in private bucket workflow below and never grant Render access to host or guest paths. Apple Music needs developer authorization/credentials and a supported integration. Gmail on a hosted server needs per-user authentication and protected account/token isolation before any mailbox connection; do not store user Gmail tokens in an unauthenticated shared deployment. Real music/email integration, desktop notification delivery, live hosted PDF validation and guest/document validation are still pending.
+The user requested Ubuntu, Windows companion and hosted Render/phone feature availability, with **no synchronization between installations**. Shared browser learning/suggestion features can run on all three. Existing PDF filesystem actions require a local companion; hosted PDFs use the separate opt-in private bucket workflow below and never grant Render access to host or guest paths. Apple Music needs developer authorization/credentials and a supported integration and remains unimplemented. Independent local Gmail monitoring and visible notifications are user-verified on Windows and Ubuntu; hosted Gmail and phone alerts are not implemented. Hosted PDF expiry/failure validation and real guest-document/export validation remain pending.
 
-Integration decisions: use MusicKit with the user's Apple Developer setup, and a user-configured Google Cloud OAuth application for read-only Gmail. Hosted PDF processing uses an authenticated upload service, not browser-only processing. Hosted access is restricted to the user's explicitly approved account using Google sign-in, with server-validated identity and a server-side session; Gmail permission remains separate. Selected storage is Firestore plus private Google Cloud Storage, targeting regional **us-west1 (Oregon)** near the Render service in Oregon. Authentication and bucket provisioning have been user-confirmed; independent cleanup and hosted PDF live validation are still required. The requested deletion target is **24 hours**, with an immediate-delete control; the implementation's limits are detailed below. Retention must cover temporary files, previews and stored objects; delayed/offline cleanup cannot be presented as completed deletion. Source changes do not provision cloud resources or credentials.
+Integration decisions: use MusicKit with the user's Apple Developer setup, and a user-configured Google Cloud OAuth application for read-only Gmail. Hosted PDF processing uses an authenticated upload service, not browser-only processing. Hosted access is restricted to the user's explicitly approved account using Google sign-in, with server-validated identity and a server-side session; Gmail permission remains separate. Selected storage is Firestore plus private Google Cloud Storage, targeting regional **us-west1 (Oregon)** near the Render service in Oregon. Authentication, bucket provisioning, successful scheduled cleanup requests and manual PDF upload/fill/download/deletion have been user-confirmed; the real automatic-expiry deletion test is pending. The requested deletion target is **24 hours**, with an immediate-delete control; the implementation's limits are detailed below. Retention must cover temporary files, previews and stored objects; delayed/offline cleanup cannot be presented as completed deletion. Source changes do not provision cloud resources or credentials.
 
 #### Google hosted sign-in: implementation and provisioning
 
@@ -272,9 +307,13 @@ Scheduled deletion must be independent of a sleeping Render web process. Bucket 
 
 ## Production build
 
-### Hosted PDF milestone: private bucket workflow (opt-in, live validation pending)
+### Hosted PDF milestone: private bucket workflow (expiry validation pending)
 
 The source now includes authenticated upload, field inspection, approved fill-to-new-output, PDF.js visual preview, attachment download, job recovery/listing and immediate deletion. It is separate from the VM workflow and never calls OpenAI with PDF contents. Standard AcroForm limits/rejections from the local PDF engine apply. A signed-in session's verified Google subject owns its jobs; changing IDs cannot grant another user access. Original filenames are not used as storage paths. Inputs/outputs stay private and are served through authenticated routes, without public/signed URLs or browser caching.
+
+User-confirmed deployment status (2026-11-02): private bucket and narrow IAM permissions configured; hosted uploads enabled after a successful Scheduler run; fictional PDF uploaded, filled, downloaded and opened with editable values. Immediate deletion removed both live bucket objects and the matching Firestore job record. A second fictional job was left for the 23-hour expiry test, with results still pending as of 2026-11-03 shortly after midnight New Zealand time. Successful empty/nonexpired cleanup runs do not prove expired-object deletion.
+
+Google Cloud budget alerts and a Monitoring email channel/log-based **Peppy PDF cleanup failure** policy were configured. Its filter is `resource.type="cloud_scheduler_job"`, job ID `peppy-pdf-cleanup`, location `us-west1`, and `severity>=ERROR`; notification frequency is 15 minutes. An earlier 502 was followed by a successful execution. Email alert delivery and missing-run detection are not verified; the log alert cannot detect a paused job or absence of executions. Budget alerts are not spending caps.
 
 Uploads are **disabled by default**. Set `PEPPY_PDF_BUCKET` to the private bucket name. Before setting `PEPPY_PDF_ENABLED=1`, configure and validate the independent cleanup job below. A recent successful cleanup heartbeat (within 20 minutes) is additionally required for each upload. Enabling checks the bucket is `us-west1`, uniform-access, public-access-prevention enforced, without object versioning, soft deletion or a retention policy. The backend needs `storage.buckets.get` to check this metadata, in addition to bucket-scoped Storage Object User. Use a narrowly scoped custom role containing only `storage.buckets.get` for this check, not Storage Admin. Existing bucket-only data access does not necessarily include this permission.
 
@@ -286,7 +325,7 @@ Firestore collection `peppy_pdf_jobs` stores owner, expiry, processing status, i
 2. Set `PEPPY_CLEANUP_ACCOUNT` in Render to that service account's exact email. Keep uploads disabled during this setup.
 3. Configure an HTTP Scheduler job in `us-west1`, schedule `*/15 * * * *` (every 15 minutes), UTC, method POST, target `https://peppy-pocket-pal.onrender.com/api/maintenance/pdf-cleanup`.
 4. Choose **OIDC** authentication using the dedicated cleanup service account. Set the audience to exactly the same endpoint URL, without query parameters. The configuring human needs permission to act as the chosen account; retain the Google-managed Cloud Scheduler service agent's required service-agent role. Do not grant the caller Owner/Editor or send a Google browser-session cookie.
-5. Configure retries and a request deadline sufficient for Render cold starts (up to three minutes for an HTTP Scheduler target), and monitoring/alerts for non-success responses and missed runs. A sleeping Render process may wake on a request, but prolonged cold starts, outages, billing issues or revoked credentials can prevent cleanup.
+5. Configure retries and a request deadline sufficient for Render cold starts, and monitoring/alerts for non-success responses and missed runs. The selected settings are three retry attempts, maximum retry duration `0s` (count controls retries), minimum backoff `30s`, maximum backoff `120s`, maximum doublings `2`, and attempt deadline `180s`. Duration fields require a unit suffix. A sleeping Render process may wake on a request, but prolonged cold starts, outages, billing issues or revoked credentials can prevent cleanup.
 6. Deploy the source with uploads disabled and run the Scheduler job manually. Require a successful HTTP response and a fresh `peppy_pdf_operations/cleanup.lastSuccess` record before enabling uploads. The endpoint rejects missing/invalid identity tokens and tokens for another audience/account. It is deliberately separate from interactive sign-in.
 
 Cleanup deletes job object prefixes before job metadata, retries failed deletions, scans object expiry metadata for interrupted-job/late-write orphans, and only records success after no expired job backlog remains. Do not point other applications at the reserved `pdf/` prefix. Errors do not confirm deletion; inspect failures and retry. Immediate deletion failure remains visible and the job can be retried from **Refresh my document jobs**. Closing a tab does not delete jobs.
@@ -297,9 +336,9 @@ Before release, verify actual bucket permissions and privacy, anonymous/other-ac
 
 Run `npm run build`, set `NODE_ENV=production`, and start with `npm start`. Serve it over HTTPS to enable PWA installation on mobile devices.
 
-### Ubuntu VM: automatic startup after login
+### Ubuntu VM: legacy chat-only automatic startup after login
 
-These instructions are for the **Ubuntu guest copy only**, not the Windows companion or Render. They start the chat/speech server, not the planned Linux assistant or PDF tools. Prerequisites: source copied into `~/peppy`, `npm ci`, `npm test` and `npm run build` successful, and Node installed at `~/.local/node/bin/node`. Configure the guest's `.env` separately, restrict it with `chmod 600 ~/peppy/.env`, and never put API keys in this service file, chat or source control. The `.env` is plaintext; snapshots taken after credential setup can contain it.
+These instructions document the earlier **Ubuntu guest chat-only setup**, not the Windows companion or Render. The current Gmail/local-tools guest uses the companion service documented above; do not replace it with this chat-only configuration. Prerequisites for the legacy setup: source copied into `~/peppy`, `npm ci`, `npm test` and `npm run build` successful, and Node installed at `~/.local/node/bin/node`. Configure the guest's `.env` separately, restrict it with `chmod 600 ~/peppy/.env`, and never put API keys in this service file, chat or source control. The `.env` is plaintext; snapshots taken after credential setup can contain it.
 
 Run commands inside Ubuntu one at a time, stopping on errors. Host clipboard and folder sharing can remain disabled.
 
