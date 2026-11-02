@@ -13,6 +13,7 @@ import { createSpeechHandler } from './speech.js';
 import os from 'node:os';
 import dotenv from 'dotenv';
 import { learningHandler } from './learningApi.js';
+import { installLocalGmail } from './gmailLocal.js';
 
 const linuxVm = process.platform === 'linux' && process.env.PEPPY_VM === '1';
 if ((!linuxVm && process.platform !== 'win32') || process.env.RENDER || process.env.NODE_ENV === 'production') throw new Error('Local assistant requires Windows or explicitly enabled Linux VM mode (PEPPY_VM=1); it cannot run on Render or in production mode.');
@@ -72,10 +73,11 @@ app.use((req, res, next) => {
   res.set('X-Content-Type-Options', 'nosniff');
   if (req.path === '/api/status' || req.path === '/') {
     res.cookie('peppy_local', token, { httpOnly: true, sameSite: 'strict', path: '/' });
-  } else if (req.path.startsWith('/api/') && !(req.headers.cookie || '').split(';').some(item => item.trim() === `peppy_local=${token}`)) return res.status(401).json({ error: 'Open the local Peppy homepage to establish a session.' });
+  } else if (req.path.startsWith('/api/') && req.path !== '/api/local/gmail/callback' && !(req.headers.cookie || '').split(';').some(item => item.trim() === `peppy_local=${token}`)) return res.status(401).json({ error: 'Open the local Peppy homepage to establish a session.' });
   next();
 });
 app.use(express.json({ limit: '128kb' }));
+const gmail = await installLocalGmail(app, stateDir);
 let busy = false;
 const endpoint = handler => async (req, res) => {
   if (busy) return res.status(409).json({ error: 'Another local action is in progress. Please wait.' });
@@ -169,5 +171,6 @@ app.use((error, _req, res, _next) => {
 const server = app.listen(3030, '127.0.0.1', () => console.log(`Local Peppy: ${origin}. Tools are unavailable on Render.`));
 server.on('error', error => { console.error('Local Peppy could not start:', error.message); process.exitCode = 1; });
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
+  gmail.stop();
   tools.amazon.close().then(() => server.close()).catch(error => { console.error('Amazon shutdown failed:', error.message); process.exitCode = 1; });
 });

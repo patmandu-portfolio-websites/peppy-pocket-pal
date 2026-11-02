@@ -8,6 +8,7 @@ import './style.css';
 import { LearningPanel } from './LearningPanel.jsx';
 import { emptyLearning, learningKey, learningContext } from './learning.js';
 const HostedPdfPanel = lazy(() => import('./HostedPdfPanel.jsx'));
+const GmailPanel = lazy(() => import('./GmailPanel.jsx'));
 
 const KEY = 'peppy-state-v1';
 const firstState = { messages: [], memory: '', name: '', spokenReplies: false, selectedVoice: defaultVoice };
@@ -138,6 +139,7 @@ function App() {
       </section>
 
       <footer className="composer-area">
+        {status?.localAssistant && <Suspense fallback={<p>Loading Gmail controls...</p>}><GmailPanel/></Suspense>}
         {status.authenticationRequired && status.signedIn && <Suspense fallback={<p>Loading document controls...</p>}><HostedPdfPanel/></Suspense>}
         <details><summary>Learning, knowledge and improvement suggestions</summary>{learningError ? <p role="alert">{learningError}</p> : <LearningPanel state={learning} save={saveLearning}/>}</details>
         {status?.localAssistant && <LocalAssistantPanel enabled={localEnabled} onToggle={value => { voice.stopAll(); setLocalEnabled(value); setLocalTask(null); }} task={localTask} busy={loading} onApproval={localAction} onContinue={() => localAction()}/>}

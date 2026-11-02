@@ -138,6 +138,7 @@ test('built PDF controls render approved source and filled output without sendin
   app.use(express.json());
   app.get('/api/status', (_req, res) => res.json({ configured: true, localAssistant: true }));
   app.get('/api/local/config', (_req, res) => res.json({ roots: tools.policy.roots, origins: [] }));
+  app.get('/api/local/gmail/status', (_req, res) => res.json({ connected: false, enabled: false, preview: false }));
   const pending = new Map();
   app.post('/api/local/pdf/propose', async (req, res) => {
     try {
