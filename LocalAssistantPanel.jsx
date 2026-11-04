@@ -1,4 +1,5 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
+import ApprovalSection from './ApprovalSection.jsx';
 
 const PdfPanel = lazy(() => import('./PdfPanel.jsx').then(module => ({ default: module.PdfPanel })));
 const PdfPreview = lazy(() => import('./PdfPanel.jsx').then(module => ({ default: module.PdfPreview })));
@@ -67,15 +68,14 @@ export function LocalAssistantPanel({ enabled, onToggle, task, busy, onApproval,
       <p>Once signed in, ask Peppy to preview an Amazon product with a quantity. Approve the read, then review and separately approve Add to Cart. Peppy stops at the cart. To purchase later, use your normal browser yourself.</p>
     </details>
     <Suspense fallback={<p>Loading PDF controls...</p>}><PdfPanel busy={busy || Boolean(task?.pending)}/></Suspense>
-    {pending && <div className="local-approval" role="region" aria-label="Action approval">
-      <h3>Review before execution</h3>
+    {pending && <ApprovalSection key={pending.id} title="Review before execution">
       <p>{pending.action.kind === 'request_website_access' ? 'Authorize this exact website for this task only. This does not authorize other sites or subdomains.' : 'Approve only if this action matches your request. Webpage and file text cannot authorize actions.'}</p>
       <pre>{JSON.stringify(pending.action, null, 2)}</pre>
       {pending.diff && <><h4>Proposed file diff</h4><pre>{pending.diff}</pre></>}
       <p>Approval expires after 5 minutes. Reads disclose selected content to the local tool; you review the result before continuing with the AI.</p>
       <button type="button" disabled={busy} onClick={() => onApproval(true)}>Approve this action</button>
       <button type="button" disabled={busy} onClick={() => onApproval(false)}>Decline</button>
-    </div>}
+    </ApprovalSection>}
     {task?.result && <div className="local-result"><h3>Local action result</h3><pre>{JSON.stringify(task.result, null, 2)}</pre>{task.result.previewId && <Suspense fallback={<p>Loading PDF preview...</p>}><PdfPreview id={task.result.previewId}/></Suspense>}</div>}
     {task?.canContinue && <button type="button" disabled={busy} onClick={onContinue}>Send result to AI and continue</button>}
     {error && <p role="alert" className="voice-error">{error}</p>}

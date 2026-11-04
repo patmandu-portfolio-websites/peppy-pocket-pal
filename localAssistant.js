@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { redact } from './localPolicy.js';
+import { chatInput, imageChatInstructions } from './chatInput.js';
 
 const actionKinds = ['inspect_pdf', 'fill_pdf', 'list_files', 'search_files', 'read_file', 'write_file', 'move_file', 'delete_file', 'read_website', 'fill_form', 'download_file', 'restore_backup', 'request_website_access', 'amazon_product', 'amazon_add_to_cart', 'amazon_view_cart'];
 const properties = { ...Object.fromEntries(['path', 'destination', 'text', 'url', 'selector', 'value', 'query', 'backupId'].map(name => [name, { type: ['string', 'null'] }])), quantity: { type: ['integer', 'null'] } };
@@ -29,7 +30,7 @@ export class LocalAssistant {
     for (const [id, session] of this.sessions) if (session.expires < Date.now()) this.sessions.delete(id);
     if (this.sessions.size >= 20) throw new Error('Too many active tasks. Restart the local companion to clear them.');
     const id = crypto.randomUUID();
-    const session = { input: messages.slice(-16).map(message => ({ role: message.role, content: message.content })), memory, pending: null, busy: false, origins: [], expires: Date.now() + 30 * 60 * 1000, steps: 0 };
+    const session = { input: [{ role: 'developer', content: imageChatInstructions }, ...chatInput(messages)], memory, pending: null, busy: false, origins: [], expires: Date.now() + 30 * 60 * 1000, steps: 0 };
     this.sessions.set(id, session);
     return this.run(id);
   }

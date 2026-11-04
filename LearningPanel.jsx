@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { approveProposal, checkedText, correctEntry, learningContext, suggestionStatus, validateProposal } from './learning.js';
+import ApprovalSection from './ApprovalSection.jsx';
 
 export function LearningPanel({ state, save }) {
   const [kind, setKind] = useState('memory');
@@ -46,14 +47,14 @@ export function LearningPanel({ state, save }) {
     <button type="button" disabled={busy || (kind === 'suggestion' && !state.suggestionsEnabled)} onClick={manual}>Preview my proposed entry</button>
     <p>The following button sends only the entered evidence/source to OpenAI, with API charges. It does not save the result automatically.</p>
     <button type="button" disabled={busy || (kind === 'suggestion' && !state.suggestionsEnabled)} onClick={propose}>Send selected evidence to AI and propose</button>
-    {pending && <div><h4>Review exact proposal</h4><pre>{JSON.stringify(pending, null, 2)}</pre>
+    {pending && <ApprovalSection title="Review exact proposal"><pre>{JSON.stringify(pending, null, 2)}</pre>
       <label><input type="checkbox" checked={pending.certainty === 'confirmed'} onChange={event => setPending({ ...pending, certainty: event.target.checked ? 'confirmed' : 'uncertain' })}/> I confirm this information (otherwise uncertain)</label>
       <button type="button" onClick={() => {
         try { save(approveProposal(state, pending, crypto.randomUUID())); setPending(null); setError(''); }
         catch (cause) { setError(cause.message); }
       }}>Approve saving locally</button>
       <button type="button" onClick={() => setPending(null)}>Decline</button>
-    </div>}
+    </ApprovalSection>}
     <label>Search saved entries <input value={query} onChange={event => setQuery(event.target.value)}/></label>
     {state.entries.filter(item => `${item.title} ${item.content} ${item.source}`.toLowerCase().includes(query.toLowerCase())).map(item => <article key={item.id}>
       <h4>{item.title} ({item.kind}, {item.certainty})</h4>

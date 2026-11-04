@@ -97,6 +97,28 @@ test('fill excludes concurrent owner deletion and uncertain output cannot be fil
   assert.equal(objects.size, 0);
 });
 
+test('hosted non-fillable overlays preserve input and enforce ownership, limits and proposal expiry', async () => {
+  const { service, advance, jobs } = await fixture();
+  const document = await PDFDocument.create();
+  document.addPage([400, 500]);
+  const input = Buffer.from(await document.save());
+  const job = await service.upload('owner', input);
+  const overlays = [{ page: 1, x: 0.1, y: 0.2, size: 12, text: 'Cloud overlay' }];
+  await assert.rejects(service.propose('other', job.id, {}, overlays), /unavailable/);
+  await assert.rejects(service.propose('owner', job.id, {}, [{ ...overlays[0], x: 0.99 }]), /outside/);
+  assert.equal(jobs.get(job.id).proposal, undefined);
+  let proposal = await service.propose('owner', job.id, {}, overlays);
+  advance(6 * 60 * 1000);
+  await assert.rejects(service.fill('owner', job.id, proposal.id), /expired/);
+  proposal = await service.propose('owner', job.id, {}, overlays);
+  assert.deepEqual(proposal.overlays, overlays);
+  await service.fill('owner', job.id, proposal.id);
+  assert.deepEqual(await service.bytes('owner', job.id, 'input'), input);
+  assert.notDeepEqual(await service.bytes('owner', job.id, 'output'), input);
+  assert.deepEqual((await service.inspect('owner', job.id)).fields, []);
+  await assert.rejects(service.fill('owner', job.id, proposal.id));
+});
+
 test('cleanup handles expired writes after job metadata removal without resurrecting a job', async () => {
   const { service, store, input, advance, jobs, objects } = await fixture();
   const job = await service.upload('owner', input);
@@ -231,6 +253,7 @@ test('built hosted PDF UI uploads, previews, fills and deletes using explicit bu
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   const errors = [];
   page.on('pageerror', cause => errors.push(cause.message));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -263,6 +286,11 @@ test('built hosted PDF UI uploads, previews, fills and deletes using explicit bu
   });
   const before = await page.locator('canvas').evaluate(canvas => canvas.toDataURL());
   await page.getByRole('button', { name: 'Preview proposed changes' }).click();
+  await page.waitForFunction(() => document.activeElement?.textContent === 'Review PDF changes before saving');
+  const approvalBounds = await page.getByRole('heading', { name: 'Review PDF changes before saving', exact: true }).boundingBox();
+  assert.ok(approvalBounds.y >= 65 && approvalBounds.y + approvalBounds.height <= 900,
+    `Approval heading must be visible below the header: ${JSON.stringify(approvalBounds)}`);
+  assert.equal(await page.getByRole('dialog').count(), 0);
   await page.getByRole('button', { name: 'Approve filling new copy' }).click();
   await page.getByRole('link', { name: 'Download reviewed output PDF' }).waitFor();
   await page.waitForFunction(image => {
@@ -271,6 +299,33 @@ test('built hosted PDF UI uploads, previews, fills and deletes using explicit bu
   }, before);
   await page.getByRole('button', { name: 'Delete input and output now' }).click();
   await page.getByRole('button', { name: 'Approve uploading selected PDF' }).waitFor({ state: 'visible' });
+  await page.waitForFunction(() => !document.querySelector('canvas'));
+  assert.deepEqual(await service.list('owner'), []);
+  const flat = await PDFDocument.create();
+  flat.addPage([400, 500]);
+  const flatInput = Buffer.from(await flat.save());
+  await page.getByLabel('Select PDF to upload').setInputFiles({ name: 'flat.pdf', mimeType: 'application/pdf', buffer: flatInput });
+  await page.getByRole('button', { name: 'Approve uploading selected PDF' }).click();
+  await page.getByLabel('Place text on a non-fillable PDF', { exact: true }).check();
+  await page.getByLabel('Text to place', { exact: true }).fill('Hosted overlay answer');
+  const target = page.getByRole('button', { name: 'Place text on PDF page 1', exact: true });
+  await target.waitFor();
+  const bounds = await target.boundingBox();
+  await target.click({ position: { x: bounds.width * 0.1, y: bounds.height * 0.2 } });
+  await page.locator('.pdf-overlays text').waitFor();
+  const blank = await page.locator('canvas').evaluate(canvas => canvas.toDataURL());
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  await page.getByRole('button', { name: 'Preview proposed changes' }).click();
+  await page.getByRole('button', { name: 'Approve filling new copy' }).click();
+  await page.getByRole('link', { name: 'Download reviewed output PDF' }).waitFor();
+  await page.waitForFunction(image => {
+    const canvas = document.querySelector('canvas');
+    return canvas && document.querySelector('.pdf-overlays') && canvas.toDataURL() !== image;
+  }, blank, { timeout: 10000 });
+  const overlayJob = (await service.list('owner'))[0];
+  assert.deepEqual(await service.bytes('owner', overlayJob.id, 'input'), flatInput);
+  assert.notDeepEqual(await service.bytes('owner', overlayJob.id, 'output'), flatInput);
+  await page.getByRole('button', { name: 'Delete input and output now' }).click();
   await page.waitForFunction(() => !document.querySelector('canvas'));
   assert.deepEqual(await service.list('owner'), []);
   assert.deepEqual(errors, []);

@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { PDFDocument, PDFName, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList, PDFSignature } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList, PDFSignature, StandardFonts, degrees } from 'pdf-lib';
 import { inside, containsCredentials } from './localPolicy.js';
 
 export const maxPdfBytes = 10 * 1024 * 1024;
@@ -62,10 +62,50 @@ export class PdfTools {
     }
   }
 
+  async applyEdits(document, values, overlays) {
+    if (overlays === undefined) { this.apply(document, values); return; }
+    if (!values || Array.isArray(values) || typeof values !== 'object') throw new Error('Provide field values as a JSON object.');
+    if (Object.keys(values).length) this.apply(document, values);
+    if (!Array.isArray(overlays) || !overlays.length || overlays.length > 100) throw new Error('Provide between 1 and 100 text overlays.');
+    const font = await document.embedFont(StandardFonts.Helvetica);
+    for (const item of overlays) {
+      if (!item || !Number.isInteger(item.page) || item.page < 1 || item.page > document.getPageCount() ||
+          !Number.isFinite(item.x) || !Number.isFinite(item.y) || item.x < 0 || item.y < 0 || item.x > 1 || item.y > 1 ||
+          !Number.isFinite(item.size) || item.size < 6 || item.size > 48 ||
+          typeof item.text !== 'string' || !item.text.trim() || item.text.length > 500 ||
+          /[\r\n\t\u0000-\u001f\u007f]/.test(item.text) || containsCredentials(item.text)) {
+        throw new Error('Invalid text overlay: select a page, position, single-line text (up to 500 characters) and size 6-48 pt. Credentials are not allowed.');
+      }
+      const page = document.getPage(item.page - 1);
+      const crop = page.getCropBox();
+      const media = page.getMediaBox();
+      // PDF.js displays the intersection of CropBox and MediaBox.
+      const left = Math.max(crop.x, media.x);
+      const bottom = Math.max(crop.y, media.y);
+      const width = Math.min(crop.x + crop.width, media.x + media.width) - left;
+      const height = Math.min(crop.y + crop.height, media.y + media.height) - bottom;
+      const rotation = ((page.getRotation().angle % 360) + 360) % 360;
+      if (![0, 90, 180, 270].includes(rotation) || width <= 0 || height <= 0) throw new Error('Unsupported PDF page geometry.');
+      const viewWidth = rotation % 180 ? height : width;
+      const viewHeight = rotation % 180 ? width : height;
+      const x = item.x * viewWidth;
+      const y = item.y * viewHeight;
+      const textWidth = font.widthOfTextAtSize(item.text, item.size);
+      if (x + textWidth > viewWidth || y + item.size * 1.25 > viewHeight) throw new Error('Overlay text extends outside the page. Move it or reduce its font size.');
+      const baseline = y + item.size;
+      const position = rotation === 0 ? { x: left + x, y: bottom + height - baseline } :
+        rotation === 90 ? { x: left + baseline, y: bottom + x } :
+        rotation === 180 ? { x: left + width - x, y: bottom + baseline } :
+        { x: left + width - baseline, y: bottom + height - x };
+      page.drawText(item.text, { ...position, size: item.size, font, rotate: degrees(rotation) });
+    }
+  }
+
   async prepare(action) {
     const source = await this.policy.resolve(action.path);
     if (this.inputs && !inside(this.inputs, source)) throw new Error('PDF inputs must be inside the guest inputs folder.');
     const bytes = await this.read(source);
+    if (action.overlays !== undefined && action.inputHash !== hash(bytes)) throw new Error('PDF changed or has not been inspected for text placement. Inspect it again.');
     const document = await this.document(bytes);
     const prepared = { path: source, hash: hash(bytes) };
     if (action.kind === 'fill_pdf') {
@@ -75,7 +115,7 @@ export class PdfTools {
       try { await fs.lstat(prepared.destination); throw new Error('PDF destination already exists.'); }
       catch (error) { if (error.code !== 'ENOENT') throw error; }
       if (typeof action.text !== 'string' || action.text.length > 32000) throw new Error('Provide PDF field values as JSON text, up to 32000 characters.');
-      this.apply(document, JSON.parse(action.text));
+      await this.applyEdits(document, JSON.parse(action.text), action.overlays);
       // Generate appearances before approval so unsupported text fails without writing.
       await document.save();
     }
@@ -96,7 +136,7 @@ export class PdfTools {
     const document = await this.document(bytes);
     let output = bytes;
     if (prepared.action.kind === 'fill_pdf') {
-      this.apply(document, JSON.parse(prepared.action.text));
+      await this.applyEdits(document, JSON.parse(prepared.action.text), prepared.action.overlays);
       output = await document.save();
       if (output.length > maxPdfBytes) throw new Error('Generated PDF exceeds 10 MiB.');
     }
@@ -107,6 +147,6 @@ export class PdfTools {
         await fs.writeFile(prepared.destination, output, { flag: 'wx', mode: 0o600 });
       }
     } catch (error) { this.previews.delete(previewId); throw error; }
-    return { path: prepared.destination || prepared.path, pages: document.getPageCount(), fields: this.fields(document), sha256: hash(output), previewId, note: 'Review every rendered page. Original untouched. No export, signing, OCR or website submission. PDF text extraction is not available.' };
+    return { path: prepared.destination || prepared.path, pages: document.getPageCount(), fields: this.fields(document), sha256: hash(output), previewId, note: 'Review every rendered page. Overlay text is permanent page content, not editable form fields or redaction. Original untouched. No export, signing, OCR or website submission. PDF text extraction is not available.' };
   }
 }

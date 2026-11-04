@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { PDFDocument, PDFName } from 'pdf-lib';
+import { PDFDocument, PDFName, degrees } from 'pdf-lib';
 import { chromium } from 'playwright';
 import express from 'express';
 import { LocalPolicy } from './localPolicy.js';
@@ -66,6 +66,39 @@ test('PDF actions reject stale inputs, expired approvals, collisions and invalid
   const stale = await tools.prepare({ kind: 'inspect_pdf', path: source });
   await fs.appendFile(source, '\nchanged');
   await assert.rejects(tools.execute(stale), /changed after preview/);
+});
+
+test('non-fillable PDF overlays preserve originals and reject invalid positions, text and stale previews', async t => {
+  const { tools, source, outputs } = await fixture(t);
+  const flat = await PDFDocument.create();
+  flat.addPage([400, 500]);
+  const original = Buffer.from(await flat.save());
+  await fs.writeFile(source, original);
+  const inspected = await tools.execute(await tools.prepare({ kind: 'inspect_pdf', path: source }));
+  assert.deepEqual(inspected.fields, []);
+  const overlay = { page: 1, x: 0.1, y: 0.2, size: 12, text: 'Overlay answer' };
+  const action = { kind: 'fill_pdf', path: source, destination: path.join(outputs, 'overlay.pdf'),
+    text: '{}', overlays: [overlay], inputHash: inspected.sha256 };
+  for (const change of [{ page: 0 }, { page: 2 }, { x: -0.1 }, { y: 1 }, { x: 0.99 },
+    { size: 5 }, { size: 49 }, { text: '' }, { text: 'a\nb' }, { text: '\u4e2d' }, { text: 'a'.repeat(501) }, { text: 'password=example' }]) {
+    await assert.rejects(tools.prepare({ ...action, overlays: [{ ...overlay, ...change }] }), JSON.stringify(change));
+  }
+  await assert.rejects(tools.prepare({ ...action, overlays: [] }), /1 and 100/);
+  await assert.rejects(tools.prepare({ ...action, overlays: Array(101).fill(overlay) }), /1 and 100/);
+  await assert.rejects(tools.prepare({ ...action, inputHash: 'wrong' }), /inspected/);
+  const prepared = await tools.prepare(action);
+  await assert.rejects(fs.stat(action.destination), { code: 'ENOENT' });
+  const result = await tools.execute(prepared);
+  assert.deepEqual(await fs.readFile(source), original);
+  assert.deepEqual(result.fields, []);
+  assert.notDeepEqual(await fs.readFile(action.destination), original);
+  await assert.rejects(tools.prepare(action), /already exists/);
+  assert.ok(!(await fs.readFile(path.join(tools.stateDir, 'actions.jsonl'), 'utf8')).includes(overlay.text));
+  const next = { ...action, destination: path.join(outputs, 'next.pdf') };
+  const stale = await tools.prepare(next);
+  await fs.appendFile(source, '\nchanged');
+  await assert.rejects(tools.execute(stale), /changed after preview/);
+  await assert.rejects(tools.prepare(next), /changed or has not been inspected/);
 });
 
 test('PDF policy rejects invalid files, too many pages and signatures', async t => {
@@ -162,6 +195,9 @@ test('built PDF controls render approved source and filled output without sendin
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage();
+  await page.addInitScript(() => localStorage.setItem('peppy-state-v1', JSON.stringify({
+    messages: [{ role: 'user', content: 'A readable message' }, { role: 'assistant', content: 'A readable reply' }]
+  })));
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   const address = `http://127.0.0.1:${server.address().port}`;
@@ -172,6 +208,7 @@ test('built PDF controls render approved source and filled output without sendin
   await page.getByLabel('Selected evidence or note').fill('I like jazz.');
   await page.getByLabel('Source (HTTPS URL for knowledge)').fill('User note');
   await page.getByRole('button', { name: 'Preview my proposed entry' }).click();
+  await page.waitForFunction(() => document.activeElement?.textContent === 'Review exact proposal');
   assert.equal(await page.evaluate(() => localStorage.getItem('peppy-learning-v1')), null);
   await page.getByRole('button', { name: 'Approve saving locally' }).click();
   let learning = await page.evaluate(() => JSON.parse(localStorage.getItem('peppy-learning-v1')));
@@ -188,6 +225,7 @@ test('built PDF controls render approved source and filled output without sendin
     Boolean(document.querySelector('.composer').compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING)), true);
   await page.getByLabel('Absolute input PDF path').fill(source);
   await page.getByRole('button', { name: 'Propose PDF inspection' }).click();
+  await page.waitForFunction(() => document.activeElement?.textContent === 'Review PDF action before execution');
   await page.getByRole('button', { name: 'Approve PDF action' }).click();
   await page.waitForFunction(() => {
     const canvas = document.querySelector('canvas');
@@ -208,6 +246,64 @@ test('built PDF controls render approved source and filled output without sendin
   }, originalImage);
   const saved = await PDFDocument.load(await fs.readFile(destination));
   assert.equal(saved.getForm().getTextField('Name').getText(), 'Visible answer');
+  const flat = await PDFDocument.create();
+  for (const rotation of [0, 90, 180, 270]) {
+    const pdfPage = flat.addPage([400, 500]);
+    pdfPage.setCropBox(20, 30, 300, 400);
+    pdfPage.setRotation(degrees(rotation));
+  }
+  const flatSource = path.join(path.dirname(source), 'flat.pdf');
+  await fs.writeFile(flatSource, await flat.save());
+  await page.getByLabel('Absolute input PDF path').fill(flatSource);
+  await page.getByRole('button', { name: 'Propose PDF inspection' }).click();
+  await page.getByRole('button', { name: 'Approve PDF action' }).click();
+  await page.getByLabel('Place text on a non-fillable PDF', { exact: true }).check();
+  await page.getByLabel('Absolute new output PDF path').fill(path.join(outputs, 'ui-overlay.pdf'));
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    assert.equal(await page.locator('.composer textarea').evaluate(element => getComputedStyle(element).fontSize), '16px');
+    assert.deepEqual(await page.locator('.message-content p').evaluateAll(elements => elements.map(element => getComputedStyle(element).fontSize)), ['16px', '16px']);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  }
+  for (let index = 0; index < 4; index++) {
+    await page.getByLabel('Text to place', { exact: true }).fill(`Answer ${index + 1}`);
+    const target = page.getByRole('button', { name: `Place text on PDF page ${index + 1}`, exact: true });
+    await target.waitFor();
+    const bounds = await target.boundingBox();
+    await target.click({ position: { x: bounds.width * 0.2, y: bounds.height * 0.25 } });
+    const overlay = page.locator('.pdf-overlays text').last();
+    await overlay.waitFor();
+    const overlayBounds = await overlay.boundingBox();
+    const canvasBounds = await page.locator('canvas').boundingBox();
+    assert.ok(Math.abs((overlayBounds.x - canvasBounds.x) / canvasBounds.width - 0.2) < 0.02);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    if (index < 3) await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  }
+  await page.getByRole('button', { name: 'Propose filling a new copy' }).click();
+  await assert.rejects(fs.stat(path.join(outputs, 'ui-overlay.pdf')), { code: 'ENOENT' });
+  await page.getByRole('button', { name: 'Approve PDF action' }).click();
+  // Verify actual rendered PDF text, not just the temporary SVG placement.
+  for (let index = 0; index < 4; index++) {
+    await page.waitForFunction(pageNumber => {
+      const canvas = document.querySelector(`canvas[aria-label="PDF page ${pageNumber}"]`);
+      return canvas && document.querySelector('.pdf-overlays') && canvas.getContext('2d').getImageData(0, 0, 1, 1).data[3] > 0;
+    }, index + 1, { timeout: 10000 });
+    const ink = await page.locator('canvas').evaluate(canvas => {
+      const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+      let minX = canvas.width, minY = canvas.height, count = 0;
+      for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+        const i = (y * canvas.width + x) * 4;
+        if (data[i + 3] && data[i] < 80 && data[i + 1] < 80 && data[i + 2] < 80) {
+          minX = Math.min(minX, x); minY = Math.min(minY, y); count++;
+        }
+      }
+      return { x: minX / canvas.width, y: minY / canvas.height, count };
+    });
+    assert.ok(ink.count > 20, `Page ${index + 1} has rendered text: ${JSON.stringify(ink)}`);
+    assert.ok(Math.abs(ink.x - 0.2) < 0.02, `Page ${index + 1} horizontal position: ${ink.x}`);
+    assert.ok(ink.y >= 0.25 && ink.y < 0.28, `Page ${index + 1} vertical position: ${ink.y}`);
+    if (index < 3) await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  }
   assert.deepEqual(errors, []);
   assert.equal(await page.getByRole('alert').count(), 0);
 });

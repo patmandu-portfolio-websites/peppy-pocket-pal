@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { localRequest } from './LocalAssistantPanel.jsx';
 import { approveProposal } from './learning.js';
+import ApprovalSection from './ApprovalSection.jsx';
 
 export default function ResearchPanel({ learning, saveLearning, chatBusy, spokenReplies, speakInvitation, prepareConversation }) {
   const [state, setState] = useState(null);
@@ -116,14 +117,13 @@ export default function ResearchPanel({ learning, saveLearning, chatBusy, spoken
       <button type="button" disabled={locked || !state?.ideasEligible || selectedFindings.length > 10} onClick={() => action('idea', { approved: true, findings: reviewed.filter(entry => selectedFindings.includes(entry.id)) })}>Approve paid idea session using topics and selected findings</button>
       <p className="feature-status">{state?.eligible ? 'Downtime reached: you may approve a research session.' : 'Waiting for 15 minutes of inactivity with research enabled.'} Attempts today: {state?.day === new Date().toISOString().slice(0, 10) ? state.runs : 0}/5.</p>
       <button type="button" disabled={locked || !state?.eligible || Boolean(state.plan)} onClick={() => action('plan', { approved: true })}>Approve paid research session and propose pages</button>
-      {state?.plan && <>
-        <h3>Review proposed reading plan</h3>
+      {state?.plan && <ApprovalSection key={state.plan.id} title="Review proposed reading plan">
         <p>Plan expires in 30 minutes. Links have not been read or verified. Domain approval is for this research feature only, not file/browser tools.</p>
         {state.plan.pages.map((page, index) => <p key={index}>{page.url}<br/>{page.reason}</p>)}
         {missing.map(origin => <button type="button" key={origin} disabled={locked} onClick={() => action('domains', { id: state.plan.id, origins: [origin] })}>Approve research domain {origin}</button>)}
         <button type="button" disabled={locked || missing.length > 0} onClick={() => action('run', { id: state.plan.id, approved: true })}>Approve reading these pages and paid AI analysis</button>
         <button type="button" disabled={locked} onClick={() => action('discard-plan', {})}>Discard research plan</button>
-      </>}
+      </ApprovalSection>}
       {state?.origins.map(origin => <p key={origin}>{origin} <button type="button" disabled={locked} onClick={() => action('remove-domain', { origin })}>Revoke research domain</button></p>)}
       {state?.drafts.map(draft => <section key={draft.id}>
         <h3>Research draft: {new Date(draft.created).toLocaleString()}</h3>

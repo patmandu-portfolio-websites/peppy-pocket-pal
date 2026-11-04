@@ -314,6 +314,7 @@ test('built research UI separates domain, paid-run and library approvals at mobi
   await page.goto(base);
   await page.getByText('Downtime research — Windows and Ubuntu', { exact: true }).click();
   await page.getByRole('button', { name: 'Approve paid research session and propose pages', exact: true }).click();
+  await page.waitForFunction(() => document.activeElement?.textContent === 'Review proposed reading plan');
   const run = page.getByRole('button', { name: 'Approve reading these pages and paid AI analysis', exact: true });
   await run.waitFor();
   assert.equal(await run.isDisabled(), true);

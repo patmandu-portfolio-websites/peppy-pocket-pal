@@ -101,16 +101,18 @@ export function pdfService(store, now = Date.now) {
       if (!job || job.owner !== owner || job.expires <= now() || job.status !== 'ready') throw new Error('Document unavailable, expired or busy.');
       return job;
     },
-    async propose(owner, id, values) {
+    async propose(owner, id, values, overlays) {
       const job = await this.get(owner, id);
       if (job.outputHash) throw new Error('This job already has an output. Upload a new copy for another edit.');
       const text = JSON.stringify(values);
       if (!text || text.length > 32000) throw new Error('Field JSON is limited to 32000 characters.');
+      if (overlays !== undefined && JSON.stringify(overlays).length > 32000) throw new Error('Overlay JSON is limited to 32000 characters.');
       const input = await store.read(id, 'input');
       const document = await engine.document(input);
-      engine.apply(document, values);
+      await engine.applyEdits(document, values, overlays);
       await document.save();
       const proposal = { id: crypto.randomUUID(), values, hash: digest(input), expires: now() + 5 * 60 * 1000 };
+      if (overlays !== undefined) proposal.overlays = overlays;
       await store.update(id, { proposal });
       return proposal;
     },
@@ -136,7 +138,7 @@ export function pdfService(store, now = Date.now) {
         const input = await store.read(id, 'input');
         if (digest(input) !== proposal.hash) throw new Error('Input changed after proposal.');
         const document = await engine.document(input);
-        engine.apply(document, proposal.values);
+        await engine.applyEdits(document, proposal.values, proposal.overlays);
         const output = Buffer.from(await document.save());
         if (output.length > maxPdfBytes) throw new Error('Output exceeds 10 MiB.');
         if (now() >= job.expires - 60000) throw new Error('Document is too close to expiry to edit.');
@@ -187,7 +189,7 @@ export function installPdfRoutes(app, service, enabled) {
   app.post('/api/pdf', express.raw({ type: 'application/pdf', limit: maxPdfBytes }), endpoint(async (req, res) => res.json(await service.upload(req.hostedIdentity.subject, req.body))));
   app.get('/api/pdf', endpoint(async (req, res) => res.json({ jobs: await service.list(req.hostedIdentity.subject) })));
   app.get('/api/pdf/:id', endpoint(async (req, res) => res.json(await service.inspect(req.hostedIdentity.subject, req.params.id))));
-  app.post('/api/pdf/:id/propose', endpoint(async (req, res) => res.json(await service.propose(req.hostedIdentity.subject, req.params.id, req.body.values))));
+  app.post('/api/pdf/:id/propose', endpoint(async (req, res) => res.json(await service.propose(req.hostedIdentity.subject, req.params.id, req.body.values, req.body.overlays))));
   app.post('/api/pdf/:id/fill', endpoint(async (req, res) => {
     if (req.body.approved !== true) throw new Error('Explicit approval required.');
     res.json(await service.fill(req.hostedIdentity.subject, req.params.id, req.body.proposalId));
