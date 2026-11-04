@@ -28,6 +28,10 @@ export async function installLocalGmail(app, stateDir, { desktop = desktopGmail(
       (state.historyId !== null && !/^\d+$/.test(state.historyId)) || (state.enabled && (!state.connected || !Number.isFinite(state.enabledAt) || !state.historyId)))) {
     throw new Error('Gmail checkpoint is invalid; refusing to reset it silently.');
   }
+  if (state?.alerts !== undefined && (!Array.isArray(state.alerts) || state.alerts.length > 50 ||
+      state.alerts.some(item => !item || typeof item.id !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(item.id) ||
+        !Number.isFinite(item.created) || ['sender', 'subject'].some(key => item[key] !== undefined &&
+          (typeof item[key] !== 'string' || item[key].length > 180))))) throw new Error('Gmail alert history is invalid; inspect the local state.');
   async function save(next) {
     const temporary = `${statePath}.${crypto.randomUUID()}.tmp`;
     try {
@@ -71,7 +75,8 @@ export async function installLocalGmail(app, stateDir, { desktop = desktopGmail(
     connected: Boolean(monitor.state.connected), enabled: monitor.state.enabled, preview: monitor.state.preview,
     rules: monitor.state.rules,
     gap: Boolean(monitor.state.gap), lastSuccess: monitor.state.lastSuccess || null, busy: monitor.busy,
-    error: callbackError || monitor.state.error || null
+    error: callbackError || monitor.state.error || null,
+    alerts: monitor.state.alerts.map(item => monitor.state.preview ? item : { id: item.id, created: item.created })
   }));
   app.post('/api/local/gmail/connect', endpoint(async (_req, res) => {
     if (monitor.state.connected) throw new Error('Disconnect the existing Gmail authorization before connecting again.');
@@ -104,7 +109,7 @@ export async function installLocalGmail(app, stateDir, { desktop = desktopGmail(
         const info = await flow.oauth.getTokenInfo(tokens.access_token);
         if (info.scopes.length !== 1 || info.scopes[0] !== gmailScope) throw new Error('Unexpected Gmail permissions.');
         await desktop.write(tokens.refresh_token);
-        await monitor.persist({ connected: true, enabled: false, historyId: null, delivered: [], preview: false, gap: false, error: null });
+        await monitor.persist({ connected: true, enabled: false, historyId: null, delivered: [], alerts: [], preview: false, gap: false, error: null });
       });
       callbackError = null;
     } catch {
@@ -121,6 +126,10 @@ export async function installLocalGmail(app, stateDir, { desktop = desktopGmail(
   app.post('/api/local/gmail/rules', endpoint(async req => {
     await monitor.setRules(req.body.rules);
     return { rules: monitor.state.rules };
+  }));
+  app.post('/api/local/gmail/dismiss-alert', endpoint(async req => {
+    await monitor.dismissAlert(req.body.id);
+    return { dismissed: true };
   }));
   app.post('/api/local/gmail/check', endpoint(async () => {
     if (!monitor.state.enabled) throw new Error('Enable Gmail monitoring before checking.');
@@ -143,7 +152,7 @@ export async function installLocalGmail(app, stateDir, { desktop = desktopGmail(
       } catch { console.error('Gmail remote revocation failed; revoke access in Google account settings.'); }
     }
     if (monitor.state.connected) await desktop.remove();
-    await monitor.persist({ connected: false, enabled: false, historyId: null, delivered: [], preview: false, gap: false, error: null, lastSuccess: null });
+    await monitor.persist({ connected: false, enabled: false, historyId: null, delivered: [], alerts: [], preview: false, gap: false, error: null, lastSuccess: null });
     callbackError = null;
     if (!revoked) throw new Error('Local Gmail connection removed. Remote revocation was not confirmed: remove Peppy Gmail access in Google account settings. Revoking a shared OAuth client may also disconnect your other installation.');
     return { disconnected: true };

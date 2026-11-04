@@ -108,6 +108,37 @@ test('notification failure retains checkpoint and delivered IDs survive restart 
   assert.equal(f.saved().historyId, '12');
 });
 
+test('in-chat Gmail alerts follow preview consent, persist/deduplicate and can be dismissed', async () => {
+  const f = monitorFixture();
+  await f.monitor.enable(true);
+  await f.monitor.poll();
+  assert.equal(f.saved().alerts.length, 1);
+  assert.equal(f.saved().alerts[0].subject, 'Baverstock Oaks news');
+  await f.monitor.poll();
+  assert.equal(f.saved().alerts.length, 1);
+  const resumed = new GmailMonitor({ api: f.api, state: f.saved(), save: f.save, notify: f.notify });
+  assert.equal(resumed.state.alerts.length, 1);
+  await resumed.enable(false);
+  assert.deepEqual(Object.keys(resumed.state.alerts[0]).sort(), ['created', 'id']);
+  await resumed.dismissAlert('match');
+  assert.deepEqual(f.saved().alerts, []);
+  await assert.rejects(resumed.dismissAlert('missing'), /not found/);
+  const failing = monitorFixture();
+  await failing.monitor.enable(false);
+  failing.monitor.notify = async () => { throw new Error('Desktop unavailable'); };
+  await assert.rejects(failing.monitor.poll(), /Desktop unavailable/);
+  assert.equal(failing.saved().alerts.length, 1);
+  assert.equal(failing.saved().alerts[0].subject, undefined);
+  assert.equal(failing.saved().historyId, '10');
+  const bounded = monitorFixture();
+  await bounded.monitor.enable(false);
+  bounded.monitor.state.alerts = Array.from({ length: 50 }, (_, index) => ({ id: `old-${index}`, created: index }));
+  await bounded.monitor.poll();
+  assert.equal(bounded.saved().alerts.length, 50);
+  assert.equal(bounded.saved().alerts[0].id, 'old-1');
+  assert.equal(bounded.saved().alerts[49].id, 'match');
+});
+
 test('saving watch rules persists per installation without discarding history or enabling monitoring', async () => {
   const f = monitorFixture();
   await f.monitor.enable(false);
@@ -333,6 +364,22 @@ test('built Gmail UI requires separate consent, previews choice, pause, test and
   assert.equal((await f.status()).preview, true);
   await page.getByRole('button', { name: 'Check Gmail now' }).click();
   await page.getByText('Last successful check:', { exact: false }).waitFor();
+  f.oauth.request = async options => ({ data: options.url.endsWith('profile') ? { historyId: '10' } :
+    options.url.includes('/messages/') ? message('School newsletter', undefined, Date.now()) :
+      { historyId: '12', history: [{ messagesAdded: [{ message: { id: 'chat-alert', labelIds: ['INBOX'] } }] }] } });
+  await page.getByRole('button', { name: 'Check Gmail now' }).click();
+  const chatAlert = page.getByRole('region', { name: 'Gmail chat alert', exact: true });
+  await chatAlert.waitFor();
+  assert.match(await chatAlert.innerText(), /School newsletter/);
+  assert.equal(await chatAlert.evaluate(element => Boolean(element.closest('.chat-notifications'))), true);
+  assert.equal(await page.evaluate(() => localStorage.getItem('peppy-state-v1').includes('School newsletter')), false);
+  await page.getByLabel('Allow sender and subject in desktop notifications (otherwise generic alerts)').uncheck();
+  await page.getByRole('button', { name: 'Enable / resume Gmail monitoring' }).click();
+  await page.waitForFunction(() => document.querySelector('.gmail-chat-alerts')?.textContent.includes('An inbox message matched'));
+  assert.doesNotMatch(await chatAlert.innerText(), /School newsletter/);
+  await page.getByRole('button', { name: 'Dismiss Gmail alert', exact: true }).click();
+  await chatAlert.waitFor({ state: 'detached' });
+  assert.deepEqual((await f.status()).alerts, []);
   await page.getByRole('button', { name: 'Pause Gmail monitoring' }).click();
   await page.getByText('Connected, paused', { exact: false }).waitFor();
   await page.getByRole('button', { name: 'Disconnect Gmail and remove local authorization' }).click();

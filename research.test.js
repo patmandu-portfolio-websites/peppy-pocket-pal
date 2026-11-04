@@ -333,6 +333,7 @@ test('built research UI separates domain, paid-run and library approvals at mobi
   await page.getByRole('button', { name: 'Save invitation and idea settings', exact: true }).click();
   const card = page.getByRole('region', { name: 'Peppy conversation invitation' });
   await card.waitFor();
+  assert.equal(await card.evaluate(element => Boolean(element.closest('.chat-notifications'))), true);
   assert.equal(speeches.length, 0);
   await card.getByRole('button', { name: 'Prepare chat about the first finding', exact: true }).click();
   assert.match(await page.getByRole('textbox', { name: 'Your message', exact: true }).inputValue(), /Source: https:\/\/example.org\/article/);

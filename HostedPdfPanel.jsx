@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { PdfPreview, PdfOverlayEditor } from './PdfPanel.jsx';
+import { PdfPreview, PdfOverlayEditor, pdfApprovalSummary } from './PdfPanel.jsx';
 import ApprovalSection from './ApprovalSection.jsx';
 
 export default function HostedPdfPanel() {
@@ -41,7 +41,7 @@ export default function HostedPdfPanel() {
       <span>{item.id} — {item.status}, expires {new Date(item.expires).toLocaleString()} </span>
       <button type="button" disabled={busy || item.status !== 'ready' || item.expires <= Date.now()} onClick={() => action(async () => {
         const restored = await request(`/api/pdf/${item.id}`);
-        setJob(restored); setOutput(restored.hasOutput); setProposal(null); setOverlays([]); setOverlayMode(false);
+        setJob(restored); setOutput(restored.hasOutput); setProposal(null); setOverlays([]); setOverlayMode(false); setValues('{}');
       })}>Open job</button>
       <button type="button" disabled={busy} onClick={() => action(async () => {
         await request(`/api/pdf/${item.id}`, { method: 'DELETE' });
@@ -53,7 +53,7 @@ export default function HostedPdfPanel() {
     <button type="button" disabled={!enabled || !file || busy || Boolean(job)} onClick={() => action(async () => {
       if (file.size > 10 * 1024 * 1024) throw new Error('PDF exceeds 10 MiB.');
       setJob(await request('/api/pdf', { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: file }));
-      setOutput(false); setProposal(null); setOverlays([]); setOverlayMode(false);
+      setOutput(false); setProposal(null); setOverlays([]); setOverlayMode(false); setValues('{}');
     })}>Approve uploading selected PDF</button>
     {job && <>
       <p>Job ID: {job.id}. Save this ID if you close the page. Expires: {new Date(job.expires).toLocaleString()}.</p>
@@ -63,13 +63,14 @@ export default function HostedPdfPanel() {
       {overlayMode && !output ?
         <PdfOverlayEditor id={`${job.id}-input`} url={`/api/pdf/${job.id}/input`} overlays={overlays} onChange={setOverlays} disabled={busy || Boolean(proposal)}/> :
         <PdfPreview id={`${job.id}-${output}`} url={`/api/pdf/${job.id}/${output ? 'output' : 'input'}`}/>}
-      {!overlayMode && <label>Exact PDF field values as JSON<textarea value={values} disabled={busy || output || Boolean(proposal)} onChange={event => setValues(event.target.value)}/></label>}
+      <p>The placement editor also supports image stamps on fillable PDFs. Field values and overlays can be combined; use {'{}'} when there are no fillable fields.</p>
+      <label>Exact PDF field values as JSON<textarea value={values} disabled={busy || output || Boolean(proposal)} onChange={event => setValues(event.target.value)}/></label>
       <button type="button" disabled={busy || output || Boolean(proposal) || (overlayMode && !overlays.length)} onClick={() => action(async () => {
         setProposal(await request(`/api/pdf/${job.id}/propose`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(overlayMode ? { values: {}, overlays } : { values: JSON.parse(values) }) }));
+          body: JSON.stringify(overlayMode ? { values: JSON.parse(values), overlays } : { values: JSON.parse(values) }) }));
       })}>Preview proposed changes</button>
       {proposal && <ApprovalSection key={proposal.id} title="Review PDF changes before saving">
-        <pre>{JSON.stringify(proposal.overlays || proposal.values, null, 2)}</pre>
+        <pre>{pdfApprovalSummary({ values: proposal.values, overlays: proposal.overlays })}</pre>
         <p>Approval expires in five minutes. Creates a new output, leaving the input unchanged.</p>
         <button type="button" disabled={busy} onClick={() => action(async () => {
           const current = proposal.id;

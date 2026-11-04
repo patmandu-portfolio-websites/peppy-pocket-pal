@@ -106,7 +106,7 @@ export function pdfService(store, now = Date.now) {
       if (job.outputHash) throw new Error('This job already has an output. Upload a new copy for another edit.');
       const text = JSON.stringify(values);
       if (!text || text.length > 32000) throw new Error('Field JSON is limited to 32000 characters.');
-      if (overlays !== undefined && JSON.stringify(overlays).length > 32000) throw new Error('Overlay JSON is limited to 32000 characters.');
+      if (overlays !== undefined && JSON.stringify(overlays).length > 800000) throw new Error('Overlay JSON is limited to 800000 characters.');
       const input = await store.read(id, 'input');
       const document = await engine.document(input);
       await engine.applyEdits(document, values, overlays);

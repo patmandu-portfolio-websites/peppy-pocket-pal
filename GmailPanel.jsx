@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { localRequest } from './LocalAssistantPanel.jsx';
 
-export default function GmailPanel() {
+export default function GmailPanel({ notificationTarget }) {
   const [status, setStatus] = useState(null);
   const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -39,7 +40,22 @@ export default function GmailPanel() {
     } finally { setBusy(false); }
   }
   const locked = busy || status?.busy;
-  return <details className="feature-panel gmail-panel">
+  const alerts = <div className="gmail-chat-alerts">
+    {(status?.alerts || []).length > 0 && <p role="status">Peppy has {(status.alerts || []).length} Gmail watch alert(s) for you.</p>}
+    {(status?.alerts || []).map(item => <section className="feature-panel" key={item.id} aria-label="Gmail chat alert">
+      <div className="feature-panel-body">
+        <h3>Peppy Gmail watch alert</h3>
+        <p>{status.preview && item.sender !== undefined ? `${item.sender}: ${item.subject}` :
+          'An inbox message matched your saved Gmail watch rules. Open Gmail to review it.'}</p>
+        <p>{new Date(item.created).toLocaleString()}. Local notification, not an AI reply. A match does not verify sender identity.</p>
+        <a href="https://mail.google.com/" target="_blank" rel="noopener noreferrer">Open Gmail</a>
+        <button type="button" disabled={locked} onClick={() => action('dismiss-alert', { id: item.id })}>Dismiss Gmail alert</button>
+      </div>
+    </section>)}
+  </div>;
+  return <>
+    {notificationTarget && createPortal(alerts, notificationTarget)}
+    <details className="feature-panel gmail-panel">
     <summary>Gmail desktop notifications — this computer only</summary>
     <div className="feature-panel-body">
     <p>Separate authorization on Ubuntu and Windows; no synchronization or relay. Checks every 15 minutes while the local companion runs in your logged-in desktop session. No phone alerts. Closing this browser does not stop monitoring.</p>
@@ -75,6 +91,7 @@ export default function GmailPanel() {
     </fieldset>
     <button type="button" disabled={locked || !status || status.connected} onClick={() => action('connect')}>Connect Gmail with Google</button>
     <label><input type="checkbox" checked={preview} disabled={locked} onChange={event => setPreview(event.target.checked)}/> Allow sender and subject in desktop notifications (otherwise generic alerts)</label>
+    <p>The saved preview choice also controls in-chat Gmail cards. Turning previews off with Enable / resume removes retained sender/subject details. Cards stay local and are not sent to AI.</p>
     {status?.enabled && <p>Current notification previews: {status.preview ? 'sender and subject' : 'generic only'}. Apply a changed choice using Enable / resume.</p>}
     <button type="button" disabled={locked || !status?.connected || status.gap} onClick={() => action('enable', { preview })}>Enable / resume Gmail monitoring</button>
     {status?.gap && <button type="button" disabled={locked || !status.connected} onClick={() => action('enable', { preview, restartFromNow: true })}>Approve restarting from now — missed alerts cannot be recovered</button>}
@@ -86,5 +103,6 @@ export default function GmailPanel() {
     {(error || status?.error) && <p role="alert">{error || status.error}</p>}
     {notice && <p role="status">{notice}</p>}
     </div>
-  </details>;
+  </details>
+  </>;
 }

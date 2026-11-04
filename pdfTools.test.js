@@ -8,7 +8,7 @@ import express from 'express';
 import { LocalPolicy } from './localPolicy.js';
 import { LocalTools } from './localTools.js';
 import { LocalAssistant } from './localAssistant.js';
-import { maxPdfBytes } from './pdfTools.js';
+import { maxPdfBytes, maxPdfImageBytes } from './pdfTools.js';
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(process.cwd(), 'peppy-pdf-test-'));
@@ -99,6 +99,22 @@ test('non-fillable PDF overlays preserve originals and reject invalid positions,
   await fs.appendFile(source, '\nchanged');
   await assert.rejects(tools.execute(stale), /changed after preview/);
   await assert.rejects(tools.prepare(next), /changed or has not been inspected/);
+});
+
+test('PDF image stamps validate format, bounds and limits before writing a copy', async t => {
+  const { tools, source, outputs } = await fixture(t);
+  const inspected = await tools.execute(await tools.prepare({ kind: 'inspect_pdf', path: source }));
+  const stamp = { type: 'image', page: 1, x: 0.1, y: 0.1, width: 0.2, height: 0.1,
+    data: 'data:image/png;base64,AAAA' };
+  const action = { kind: 'fill_pdf', path: source, destination: path.join(outputs, 'image.pdf'), text: '{"Name":"Example"}',
+    inputHash: inspected.sha256, overlays: [stamp] };
+  for (const change of [{ width: 0 }, { height: -1 }, { width: 1 }, { page: 3 },
+    { data: 'https://example.org/image.png' }, { data: 'data:image/svg+xml;base64,AAAA' },
+    { data: `data:image/png;base64,${Buffer.alloc(maxPdfImageBytes + 1).toString('base64')}` }]) {
+    await assert.rejects(tools.prepare({ ...action, overlays: [{ ...stamp, ...change }] }));
+  }
+  await assert.rejects(tools.prepare(action));
+  await assert.rejects(fs.stat(action.destination), { code: 'ENOENT' });
 });
 
 test('PDF policy rejects invalid files, too many pages and signatures', async t => {
@@ -259,6 +275,13 @@ test('built PDF controls render approved source and filled output without sendin
   await page.getByRole('button', { name: 'Approve PDF action' }).click();
   await page.getByLabel('Place text on a non-fillable PDF', { exact: true }).check();
   await page.getByLabel('Absolute new output PDF path').fill(path.join(outputs, 'ui-overlay.pdf'));
+  const redPng = Buffer.from(await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 20; canvas.height = 10;
+    const context = canvas.getContext('2d');
+    context.fillStyle = 'red'; context.fillRect(0, 0, 20, 10);
+    return canvas.toDataURL().split(',')[1];
+  }), 'base64');
   for (const width of [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     assert.equal(await page.locator('.composer textarea').evaluate(element => getComputedStyle(element).fontSize), '16px');
@@ -276,6 +299,13 @@ test('built PDF controls render approved source and filled output without sendin
     const overlayBounds = await overlay.boundingBox();
     const canvasBounds = await page.locator('canvas').boundingBox();
     assert.ok(Math.abs((overlayBounds.x - canvasBounds.x) / canvasBounds.width - 0.2) < 0.02);
+    await page.getByLabel('PDF image to place', { exact: true }).setInputFiles({ name: 'red.png', mimeType: 'image/png', buffer: redPng });
+    await page.getByRole('status').filter({ hasText: 'Ready to place image:' }).waitFor();
+    const imageTarget = page.getByRole('button', { name: `Place text on PDF page ${index + 1}`, exact: true });
+    const imageBounds = await imageTarget.boundingBox();
+    await imageTarget.click({ position: { x: imageBounds.width * 0.5, y: imageBounds.height * 0.5 } });
+    await page.locator('.pdf-overlays image').waitFor();
+    await page.getByLabel('Image height (%)', { exact: true }).last().fill('10');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
     if (index < 3) await page.getByRole('button', { name: 'Next page', exact: true }).click();
   }
@@ -302,6 +332,9 @@ test('built PDF controls render approved source and filled output without sendin
     assert.ok(ink.count > 20, `Page ${index + 1} has rendered text: ${JSON.stringify(ink)}`);
     assert.ok(Math.abs(ink.x - 0.2) < 0.02, `Page ${index + 1} horizontal position: ${ink.x}`);
     assert.ok(ink.y >= 0.25 && ink.y < 0.28, `Page ${index + 1} vertical position: ${ink.y}`);
+    const imagePixel = await page.locator('canvas').evaluate(canvas => [...canvas.getContext('2d').getImageData(
+      Math.floor(canvas.width * 0.6), Math.floor(canvas.height * 0.55), 1, 1).data]);
+    assert.deepEqual(imagePixel, [255, 0, 0, 255], `Page ${index + 1} image placement`);
     if (index < 3) await page.getByRole('button', { name: 'Next page', exact: true }).click();
   }
   assert.deepEqual(errors, []);

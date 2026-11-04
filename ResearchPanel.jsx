@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { localRequest } from './LocalAssistantPanel.jsx';
 import { approveProposal } from './learning.js';
 import ApprovalSection from './ApprovalSection.jsx';
+import { createPortal } from 'react-dom';
 
-export default function ResearchPanel({ learning, saveLearning, chatBusy, spokenReplies, speakInvitation, prepareConversation }) {
+export default function ResearchPanel({ learning, saveLearning, chatBusy, spokenReplies, speakInvitation, prepareConversation, notificationTarget }) {
   const [state, setState] = useState(null);
   const [topics, setTopics] = useState('');
   const [enabled, setEnabled] = useState(false);
@@ -76,7 +77,8 @@ export default function ResearchPanel({ learning, saveLearning, chatBusy, spoken
   const missing = [...new Set((state?.plan?.pages || []).map(page => new URL(page.url).origin))].filter(origin => !state.origins.includes(origin));
   const invitations = (state?.invitations || []).filter(item => item.status === 'pending');
   const reviewed = learning.entries.filter(entry => entry.kind === 'knowledge');
-  return <>
+  const invitationCards = <div className="research-chat-alerts">
+    {state?.invitationsEnabled && invitations.length > 0 && <p role="status">Peppy has {invitations.length} research or idea invitation(s) for you.</p>}
     {state?.invitationsEnabled && invitations.map(invitation => {
       const notes = state.drafts.find(draft => draft.id === invitation.draftId)?.notes || [];
       return <section className="feature-panel" key={invitation.id} aria-label="Peppy conversation invitation">
@@ -96,6 +98,9 @@ export default function ResearchPanel({ learning, saveLearning, chatBusy, spoken
         </div>
       </section>;
     })}
+  </div>;
+  return <>
+    {notificationTarget ? createPortal(invitationCards, notificationTarget) : invitationCards}
     <details className="feature-panel">
     <summary>Downtime research — Windows and Ubuntu</summary>
     <div className="feature-panel-body">

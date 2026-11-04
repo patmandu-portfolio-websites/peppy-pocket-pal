@@ -11,6 +11,7 @@ import { readChatImage } from './chatImage.js';
 const HostedPdfPanel = lazy(() => import('./HostedPdfPanel.jsx'));
 const GmailPanel = lazy(() => import('./GmailPanel.jsx'));
 const ResearchPanel = lazy(() => import('./ResearchPanel.jsx'));
+const ImageEditor = lazy(() => import('./ImageEditor.jsx'));
 
 const KEY = 'peppy-state-v1';
 const firstState = { messages: [], memory: '', name: '', spokenReplies: false, selectedVoice: defaultVoice };
@@ -33,6 +34,7 @@ function App() {
   const [image, setImage] = useState(null);
   const [imageError, setImageError] = useState('');
   const [imageBusy, setImageBusy] = useState(false);
+  const [editingImage, setEditingImage] = useState(false);
   const imagePicker = useRef(null);
   const imageVersion = useRef(0);
   const [loading, setLoading] = useState(false);
@@ -42,6 +44,7 @@ function App() {
   const [copied, setCopied] = useState(false);
   const [localEnabled, setLocalEnabled] = useState(false);
   const [localTask, setLocalTask] = useState(null);
+  const [notificationTarget, setNotificationTarget] = useState(null);
   const [learningError, setLearningError] = useState('');
   const [learning, setLearning] = useState(emptyLearning);
   useEffect(() => {
@@ -59,13 +62,24 @@ function App() {
     setLearning(value);
   }
   const tail = useRef(null);
+  const chatShown = useRef(false);
   const input = useRef(null);
   const conversation = useRef(0);
   const voice = useVoiceChat({ enabled: spokenReplies, selectedVoice, voiceSendEnabled, onTranscript: setDraft, onVoiceSend: send });
   const lastReply = [...messages].reverse().find(m => m.role === 'assistant');
   useEffect(() => { localStorage.setItem(KEY, JSON.stringify({ messages, memory, name, spokenReplies, selectedVoice, voiceSendEnabled })); }, [messages, memory, name, spokenReplies, selectedVoice, voiceSendEnabled]);
   useEffect(() => { fetch('/api/status').then(r => { if (!r.ok) throw new Error('Status unavailable'); return r.json(); }).then(setStatus).catch(() => setStatus({ unavailable: true })); }, []);
-  useEffect(() => { tail.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [messages, loading]);
+  const chatReady = Boolean(status && !status.unavailable && (!status.authenticationRequired || status.signedIn));
+  useEffect(() => {
+    if (!chatReady || !tail.current) { chatShown.current = false; return; }
+    const firstDisplay = !chatShown.current;
+    chatShown.current = true;
+    const frame = requestAnimationFrame(() => tail.current?.scrollIntoView({
+      behavior: firstDisplay || window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+      block: 'end'
+    }));
+    return () => cancelAnimationFrame(frame);
+  }, [chatReady, messages, loading]);
   useEffect(() => { if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {}); }, []);
 
   async function attachImage(file) {
@@ -74,12 +88,13 @@ function App() {
     setImageBusy(true); setImageError('');
     try {
       const data = await readChatImage(file);
-      if (version === imageVersion.current) setImage({ data, name: file.name || 'Pasted image' });
+      if (version === imageVersion.current) { setImage({ data, name: file.name || 'Pasted image' }); setEditingImage(false); }
     } catch (cause) { if (version === imageVersion.current) setImageError(cause.message || 'Image could not be decoded. Choose a valid image.'); }
     finally { if (version === imageVersion.current) setImageBusy(false); }
   }
-  function removeImage() { imageVersion.current++; setImage(null); setImageBusy(false); setImageError(''); }
+  function removeImage() { imageVersion.current++; setImage(null); setImageBusy(false); setImageError(''); setEditingImage(false); }
   async function send(text = draft, explicitImageSend = false) {
+    if (editingImage) { setImageError('Finish or cancel image editing before sending.'); return; }
     if (image && !explicitImageSend) { setImageError('Review the attached image and press Send to share it with OpenAI.'); return; }
     const content = text.trim(); if ((!content && !image) || loading || imageBusy || (localEnabled && (localTask?.pending || localTask?.canContinue))) return;
     voice.stopAll();
@@ -160,15 +175,22 @@ function App() {
         </div> : <div className="message-list">{messages.map((m, i) => <article className={`message ${m.role}`} key={i}><div className={`message-avatar ${m.role}`}>{m.role === 'assistant' ? 'p' : (name ? name[0].toUpperCase() : '✿')}</div><div className="message-content"><div className="message-label">{m.role === 'assistant' ? 'Peppy' : name || 'You'}{m.role === 'assistant' && i === messages.length - 1 && <button className="copy-button" onClick={copyLast}>{copied ? <Check size={12}/> : null}{copied ? 'Copied' : 'Copy reply'}</button>}</div><p>{m.content}</p></div></article>)}{loading && <article className="message assistant"><div className="message-avatar assistant">p</div><div className="message-content"><div className="message-label">Peppy</div><div className="typing"><i/><i/><i/></div></div></article>}<div ref={tail}/></div>}
       </section>
 
+      <div ref={setNotificationTarget} className="chat-notifications" aria-label="Local chat notifications"/>
       <footer className="composer-area">
         <form className="composer" onSubmit={e => { e.preventDefault(); send(draft, true); }}>
-          {image && <div className="chat-image-preview"><img src={image.data} alt="Image attached for review"/><span>{image.name}</span><button type="button" disabled={loading} onClick={removeImage}>Remove image</button></div>}
+          {image && <div className="chat-image-preview"><img src={image.data} alt="Image attached for review"/><span>{image.name}</span><button type="button" disabled={loading || imageBusy} onClick={() => setEditingImage(true)}>Edit image</button><button type="button" disabled={loading} onClick={removeImage}>Remove image</button></div>}
+          {image && editingImage && <Suspense fallback={<p>Loading image editor...</p>}><ImageEditor key={image.data} image={image}
+            onApply={async file => {
+              const version = imageVersion.current;
+              const data = await readChatImage(file);
+              if (version === imageVersion.current) { setImage({ data, name: file.name }); setEditingImage(false); setImageError(''); }
+            }} onClose={() => setEditingImage(false)}/></Suspense>}
           <textarea ref={input} rows="1" value={draft} readOnly={voice.listening} onChange={e => setDraft(e.target.value)}
             onPaste={event => {
               const files = [...event.clipboardData.files];
               if (!files.length) return;
               event.preventDefault();
-              if (loading || imageBusy || voice.listening || Boolean(localTask?.pending || localTask?.canContinue)) { setImageError('Finish the current request or approval before attaching an image.'); return; }
+              if (loading || imageBusy || editingImage || voice.listening || Boolean(localTask?.pending || localTask?.canContinue)) { setImageError('Finish the current request, editing or approval before attaching an image.'); return; }
               if (files.length !== 1) { setImageError('Attach one image at a time.'); return; }
               void attachImage(files[0]);
             }}
@@ -178,11 +200,11 @@ function App() {
             <div className="composer-actions">
               <input ref={imagePicker} type="file" accept="image/png,image/jpeg,image/webp" hidden aria-label="Select chat image"
                 onChange={event => { void attachImage(event.target.files[0]); event.target.value = ''; }}/>
-              <button type="button" className="attach-image-button" disabled={loading || imageBusy || voice.listening || Boolean(localTask?.pending || localTask?.canContinue)}
+              <button type="button" className="attach-image-button" disabled={loading || imageBusy || editingImage || voice.listening || Boolean(localTask?.pending || localTask?.canContinue)}
                 onClick={() => imagePicker.current?.click()}>Attach image</button>
               <button className={`voice-button ${spokenReplies ? 'active' : ''}`} type="button" aria-label="Spoken replies" aria-pressed={spokenReplies} disabled={!voice.canSpeak} title={voice.canSpeak ? 'Turn spoken replies on or off' : 'Spoken replies are not supported in this browser'} onClick={() => setSpokenReplies(!spokenReplies)}>{spokenReplies ? <Volume2 size={18}/> : <VolumeX size={18}/>}</button>
               <button className={`voice-button ${voice.listening ? 'active' : ''}`} type="button" aria-label={voice.listening ? 'Stop microphone' : 'Start microphone'} aria-pressed={voice.listening} disabled={loading || (localEnabled && Boolean(localTask?.pending || localTask?.canContinue))} onClick={() => voice.listening ? voice.stopListening() : voice.startListening(draft)}>{voice.listening ? <Square size={16}/> : <Mic size={18}/>}</button>
-              <button className={`send-button ${draft.trim() || image ? 'ready' : ''}`} type="submit" disabled={(!draft.trim() && !image) || imageBusy || loading || voice.listening || (localEnabled && Boolean(localTask?.pending || localTask?.canContinue))} aria-label="Send message"><ArrowUp size={19}/></button>
+              <button className={`send-button ${draft.trim() || image ? 'ready' : ''}`} type="submit" disabled={(!draft.trim() && !image) || editingImage || imageBusy || loading || voice.listening || (localEnabled && Boolean(localTask?.pending || localTask?.canContinue))} aria-label="Send message"><ArrowUp size={19}/></button>
             </div>
           </div>
         </form>
@@ -209,8 +231,8 @@ function App() {
         <p className="voice-help">Your browser may send microphone audio to its speech service. Voice availability varies by phone and browser.</p>
         <p className="fineprint">Peppy is AI and can get things wrong. For important decisions, check with a pro.</p>
         <div className="companion-panels">
-          {status?.downtimeResearch && !learningError && <Suspense fallback={<p>Loading research controls...</p>}><ResearchPanel learning={learning} saveLearning={saveLearning} chatBusy={loading || imageBusy || Boolean(image) || Boolean(draft.trim()) || voice.listening || voice.preparing || voice.speaking || Boolean(localTask?.pending || localTask?.canContinue)} spokenReplies={spokenReplies} speakInvitation={text => voice.speak(text, true)} prepareConversation={text => { setDraft(text); input.current?.focus(); }}/></Suspense>}
-          {status?.localAssistant && <Suspense fallback={<p>Loading Gmail controls...</p>}><GmailPanel/></Suspense>}
+          {status?.downtimeResearch && !learningError && <Suspense fallback={<p>Loading research controls...</p>}><ResearchPanel notificationTarget={notificationTarget} learning={learning} saveLearning={saveLearning} chatBusy={loading || imageBusy || Boolean(image) || Boolean(draft.trim()) || voice.listening || voice.preparing || voice.speaking || Boolean(localTask?.pending || localTask?.canContinue)} spokenReplies={spokenReplies} speakInvitation={text => voice.speak(text, true)} prepareConversation={text => { setDraft(text); input.current?.focus(); }}/></Suspense>}
+          {status?.localAssistant && <Suspense fallback={<p>Loading Gmail controls...</p>}><GmailPanel notificationTarget={notificationTarget}/></Suspense>}
           {status.authenticationRequired && status.signedIn && <Suspense fallback={<p>Loading document controls...</p>}><HostedPdfPanel/></Suspense>}
           <details className="feature-panel"><summary>Learning, knowledge and improvement suggestions</summary><div className="feature-panel-body">{learningError ? <p role="alert">{learningError}</p> : <LearningPanel state={learning} save={saveLearning}/>}</div></details>
           {status?.localAssistant && <LocalAssistantPanel enabled={localEnabled} onToggle={value => { voice.stopAll(); setLocalEnabled(value); setLocalTask(null); }} task={localTask} busy={loading} onApproval={localAction} onContinue={() => localAction()}/>}

@@ -16,6 +16,7 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 const here = path.dirname(fileURLToPath(import.meta.url));
 app.use('/api/chat', express.json({ limit: '6mb' }));
+app.use('/api/pdf/:id/propose', express.json({ limit: '1mb' }));
 app.use(express.json({ limit: '32kb' }));
 const hosted = authConfig(process.env);
 if (hosted) {

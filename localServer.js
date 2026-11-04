@@ -79,6 +79,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use(['/api/chat', '/api/local/chat'], express.json({ limit: '6mb' }));
+app.use('/api/local/pdf/propose', express.json({ limit: '1mb' }));
 app.use(express.json({ limit: '128kb' }));
 const gmail = await installLocalGmail(app, stateDir);
 await installResearch(app, stateDir, createClient);

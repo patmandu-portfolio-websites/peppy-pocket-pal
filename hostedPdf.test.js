@@ -280,6 +280,20 @@ test('built hosted PDF UI uploads, previews, fills and deletes using explicit bu
   await page.getByLabel('Select PDF to upload').setInputFiles({ name: 'form.pdf', mimeType: 'application/pdf', buffer: input });
   await page.getByRole('button', { name: 'Approve uploading selected PDF' }).click();
   await page.getByLabel('Exact PDF field values as JSON').fill('{"Name":"Hosted answer"}');
+  await page.getByLabel('Place text on a non-fillable PDF', { exact: true }).check();
+  const stampBytes = Buffer.from(await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 20; canvas.height = 10;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#008000'; context.fillRect(0, 0, 20, 10);
+    return canvas.toDataURL().split(',')[1];
+  }), 'base64');
+  await page.getByLabel('PDF image to place', { exact: true }).setInputFiles({ name: 'stamp.png', mimeType: 'image/png', buffer: stampBytes });
+  await page.getByRole('status').filter({ hasText: 'Ready to place image:' }).waitFor();
+  const stampTarget = page.getByRole('button', { name: 'Place text on PDF page 1', exact: true });
+  const stampBounds = await stampTarget.boundingBox();
+  await stampTarget.click({ position: { x: stampBounds.width * 0.5, y: stampBounds.height * 0.5 } });
+  await page.locator('.pdf-overlays image').waitFor();
   await page.waitForFunction(() => {
     const c = document.querySelector('canvas');
     return c && c.width > 100 && c.getContext('2d').getImageData(0, 0, 1, 1).data[3] > 0;
@@ -297,6 +311,12 @@ test('built hosted PDF UI uploads, previews, fills and deletes using explicit bu
     const c = document.querySelector('canvas');
     return c && c.width > 100 && c.getContext('2d').getImageData(0, 0, 1, 1).data[3] > 0 && c.toDataURL() !== image;
   }, before);
+  const filledJob = (await service.list('owner'))[0];
+  const filledDocument = await PDFDocument.load(await service.bytes('owner', filledJob.id, 'output'));
+  assert.equal(filledDocument.getForm().getTextField('Name').getText(), 'Hosted answer');
+  const stampPixel = await page.locator('canvas').evaluate(canvas => [...canvas.getContext('2d').getImageData(
+    Math.floor(canvas.width * 0.6), Math.floor(canvas.height * 0.55), 1, 1).data]);
+  assert.deepEqual(stampPixel, [0, 128, 0, 255]);
   await page.getByRole('button', { name: 'Delete input and output now' }).click();
   await page.getByRole('button', { name: 'Approve uploading selected PDF' }).waitFor({ state: 'visible' });
   await page.waitForFunction(() => !document.querySelector('canvas'));
@@ -307,6 +327,16 @@ test('built hosted PDF UI uploads, previews, fills and deletes using explicit bu
   await page.getByLabel('Select PDF to upload').setInputFiles({ name: 'flat.pdf', mimeType: 'application/pdf', buffer: flatInput });
   await page.getByRole('button', { name: 'Approve uploading selected PDF' }).click();
   await page.getByLabel('Place text on a non-fillable PDF', { exact: true }).check();
+  await page.getByLabel('Paste PDF image here', { exact: true }).evaluate((element, base64) => {
+    const clipboardData = new DataTransfer();
+    clipboardData.items.add(new File([Uint8Array.from(atob(base64), char => char.charCodeAt(0))], 'pasted.png', { type: 'image/png' }));
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+  }, stampBytes.toString('base64'));
+  await page.getByRole('status').filter({ hasText: 'Ready to place image:' }).waitFor();
+  const pastedTarget = page.getByRole('button', { name: 'Place text on PDF page 1', exact: true });
+  const pastedBounds = await pastedTarget.boundingBox();
+  await pastedTarget.click({ position: { x: pastedBounds.width * 0.5, y: pastedBounds.height * 0.5 } });
+  await page.locator('.pdf-overlays image').waitFor();
   await page.getByLabel('Text to place', { exact: true }).fill('Hosted overlay answer');
   const target = page.getByRole('button', { name: 'Place text on PDF page 1', exact: true });
   await target.waitFor();

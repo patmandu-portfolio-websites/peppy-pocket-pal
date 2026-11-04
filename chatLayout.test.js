@@ -36,6 +36,7 @@ test('phone reply composer follows short and long chats without a viewport-sized
           fontSize: getComputedStyle(reply.querySelector('p')).fontSize
         };
       });
+
       assert.equal(layout.ordered, true);
       assert.equal(layout.panelsAfter, true);
       assert.ok(layout.gap >= 0 && layout.gap <= 50, `Reply-to-composer gap at ${width}px: ${layout.gap}`);
@@ -45,5 +46,39 @@ test('phone reply composer follows short and long chats without a viewport-sized
       assert.equal(await page.getByRole('button', { name: 'Send message', exact: true }).isEnabled(), true);
       await page.close();
     }
+  }
+});
+
+test('saved chat scrolls to the latest message after server readiness on startup and refresh', async t => {
+  if (process.env.PEPPY_PDF_UI_TEST !== '1') return t.skip('Build first and set PEPPY_PDF_UI_TEST=1.');
+  const app = express();
+  app.get('/api/status', (_req, res) => setTimeout(() => res.json({ configured: true }), 150));
+  app.use(express.static(path.join(process.cwd(), 'dist')));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  for (const width of [320, 390, 1280]) {
+    const page = await browser.newPage({ viewport: { width, height: 900 } });
+    await page.route('**/*', route => route.request().url().startsWith(base) ? route.continue() : route.abort());
+    await page.addInitScript(() => localStorage.setItem('peppy-state-v1', JSON.stringify({
+      messages: Array.from({ length: 30 }, (_, index) => ({
+        role: index % 2 ? 'assistant' : 'user', content: `Message ${index}: ${'Saved conversation text. '.repeat(20)}`
+      }))
+    })));
+    await page.goto(base);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await page.waitForFunction(() => {
+        const last = document.querySelector('.message-list')?.lastElementChild;
+        if (!last) return false;
+        const bounds = last.getBoundingClientRect();
+        return window.scrollY > 0 && bounds.bottom <= innerHeight + 2 && bounds.bottom >= innerHeight - 80;
+      }, undefined, { timeout: 10000 });
+      assert.equal(await page.locator('.message').count(), 30);
+      if (attempt === 0) await page.reload();
+    }
+    await page.close();
   }
 });

@@ -85,7 +85,7 @@ export class GmailMonitor {
   constructor({ api, state, save, notify, now = Date.now }) {
     this.api = api;
     this.state = state || { connected: false, enabled: false, historyId: null, delivered: [], preview: false };
-    this.state = { ...this.state, rules: gmailRules(this.state.rules === undefined ? defaultGmailRules : this.state.rules) };
+    this.state = { ...this.state, alerts: this.state.alerts || [], rules: gmailRules(this.state.rules === undefined ? defaultGmailRules : this.state.rules) };
     this.save = save;
     this.notify = notify;
     this.now = now;
@@ -108,11 +108,16 @@ export class GmailMonitor {
     if (baseline && !/^\d+$/.test(baseline.historyId)) throw new Error('Gmail did not return a valid starting checkpoint.');
     await this.persist({
       enabled: true, preview, error: null, gap: false,
+      ...(!preview ? { alerts: this.state.alerts.map(({ id, created }) => ({ id, created })) } : {}),
       ...(baseline ? { historyId: baseline.historyId, enabledAt: this.now(), delivered: [] } : {})
     });
   }
   async pause() { await this.persist({ enabled: false }); }
   async setRules(rules) { await this.persist({ rules: gmailRules(rules) }); }
+  async dismissAlert(id) {
+    if (typeof id !== 'string' || !this.state.alerts.some(item => item.id === id)) throw new Error('Gmail alert not found.');
+    await this.persist({ alerts: this.state.alerts.filter(item => item.id !== id) });
+  }
   async poll() {
     if (!this.state.enabled) return;
     try {
@@ -155,6 +160,11 @@ export class GmailMonitor {
         if (!match.matches) continue;
         if (this.state.delivered.length >= 5000) throw new Error('Gmail duplicate-checkpoint limit reached. Monitoring requires operator review.');
         const clean = value => value.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 180);
+        if (!this.state.alerts.some(item => item.id === id)) {
+          const alert = { id, created: this.now(), ...(this.state.preview ?
+            { sender: clean(match.sender || 'Matching subject'), subject: clean(match.subject || '(no subject)') } : {}) };
+          await this.persist({ alerts: [...this.state.alerts, alert].slice(-50) });
+        }
         await this.notify('Peppy Gmail alert', this.state.preview ?
           `${clean(match.sender || 'Matching subject')}: ${clean(match.subject || '(no subject)')}` :
           'A new inbox message matches a notification rule. Open Gmail to review it.');

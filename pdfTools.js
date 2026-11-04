@@ -5,6 +5,7 @@ import { PDFDocument, PDFName, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioG
 import { inside, containsCredentials } from './localPolicy.js';
 
 export const maxPdfBytes = 10 * 1024 * 1024;
+export const maxPdfImageBytes = 512 * 1024;
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 
 export class PdfTools {
@@ -66,14 +67,17 @@ export class PdfTools {
     if (overlays === undefined) { this.apply(document, values); return; }
     if (!values || Array.isArray(values) || typeof values !== 'object') throw new Error('Provide field values as a JSON object.');
     if (Object.keys(values).length) this.apply(document, values);
-    if (!Array.isArray(overlays) || !overlays.length || overlays.length > 100) throw new Error('Provide between 1 and 100 text overlays.');
+    if (!Array.isArray(overlays) || !overlays.length || overlays.length > 100) throw new Error('Provide between 1 and 100 text/image overlays.');
     const font = await document.embedFont(StandardFonts.Helvetica);
+    let imageBytes = 0;
+    let imageCount = 0;
     for (const item of overlays) {
+      const isImage = item?.type === 'image';
       if (!item || !Number.isInteger(item.page) || item.page < 1 || item.page > document.getPageCount() ||
           !Number.isFinite(item.x) || !Number.isFinite(item.y) || item.x < 0 || item.y < 0 || item.x > 1 || item.y > 1 ||
-          !Number.isFinite(item.size) || item.size < 6 || item.size > 48 ||
+          (!isImage && (!Number.isFinite(item.size) || item.size < 6 || item.size > 48 ||
           typeof item.text !== 'string' || !item.text.trim() || item.text.length > 500 ||
-          /[\r\n\t\u0000-\u001f\u007f]/.test(item.text) || containsCredentials(item.text)) {
+          /[\r\n\t\u0000-\u001f\u007f]/.test(item.text) || containsCredentials(item.text)))) {
         throw new Error('Invalid text overlay: select a page, position, single-line text (up to 500 characters) and size 6-48 pt. Credentials are not allowed.');
       }
       const page = document.getPage(item.page - 1);
@@ -90,6 +94,25 @@ export class PdfTools {
       const viewHeight = rotation % 180 ? width : height;
       const x = item.x * viewWidth;
       const y = item.y * viewHeight;
+      if (isImage) {
+        if (!Number.isFinite(item.width) || !Number.isFinite(item.height) || item.width <= 0 || item.height <= 0 ||
+            item.x + item.width > 1 || item.y + item.height > 1) throw new Error('Image overlay must fit inside the page with a positive width and height.');
+        const match = typeof item.data === 'string' && /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/]+={0,2})$/.exec(item.data);
+        if (!match || match[2].length > Math.ceil(maxPdfImageBytes / 3) * 4) throw new Error('PDF image overlays require PNG/JPEG, up to 512 KiB combined.');
+        const bytes = Buffer.from(match[2], 'base64');
+        imageBytes += bytes.length;
+        if (++imageCount > 10 || imageBytes > maxPdfImageBytes || bytes.toString('base64') !== match[2]) throw new Error('Use up to 10 PDF images and 512 KiB combined.');
+        const embedded = match[1] === 'png' ? await document.embedPng(bytes) : await document.embedJpg(bytes);
+        if (embedded.width * embedded.height > 16000000) throw new Error('PDF images are limited to 16 megapixels.');
+        const imageHeight = item.height * viewHeight;
+        const lower = y + imageHeight;
+        const position = rotation === 0 ? { x: left + x, y: bottom + height - lower } :
+          rotation === 90 ? { x: left + lower, y: bottom + x } :
+          rotation === 180 ? { x: left + width - x, y: bottom + lower } :
+          { x: left + width - lower, y: bottom + height - x };
+        page.drawImage(embedded, { ...position, width: item.width * viewWidth, height: imageHeight, rotate: degrees(rotation) });
+        continue;
+      }
       const textWidth = font.widthOfTextAtSize(item.text, item.size);
       if (x + textWidth > viewWidth || y + item.size * 1.25 > viewHeight) throw new Error('Overlay text extends outside the page. Move it or reduce its font size.');
       const baseline = y + item.size;
@@ -115,6 +138,7 @@ export class PdfTools {
       try { await fs.lstat(prepared.destination); throw new Error('PDF destination already exists.'); }
       catch (error) { if (error.code !== 'ENOENT') throw error; }
       if (typeof action.text !== 'string' || action.text.length > 32000) throw new Error('Provide PDF field values as JSON text, up to 32000 characters.');
+      if (action.overlays !== undefined && JSON.stringify(action.overlays).length > 800000) throw new Error('PDF overlays exceed the request limit.');
       await this.applyEdits(document, JSON.parse(action.text), action.overlays);
       // Generate appearances before approval so unsupported text fails without writing.
       await document.save();
