@@ -79,7 +79,7 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: '128kb' }));
 const gmail = await installLocalGmail(app, stateDir);
-if (linuxVm) await installResearch(app, stateDir, createClient);
+await installResearch(app, stateDir, createClient);
 let busy = false;
 const endpoint = handler => async (req, res) => {
   if (busy) return res.status(409).json({ error: 'Another local action is in progress. Please wait.' });
@@ -90,7 +90,7 @@ const endpoint = handler => async (req, res) => {
     res.status(400).json({ error: error.message });
   } finally { busy = false; }
 };
-app.get('/api/status', (_req, res) => res.json({ configured: Boolean(process.env.OPENAI_API_KEY), localAssistant: true, downtimeResearch: linuxVm, credentialSetup: linuxVm ? 'Configure OPENAI_API_KEY in the guest .env, chmod 600 .env, and restart the VM companion.' : 'Run powershell -NoProfile -File .\\localCredentials.ps1, then restart npm run local.' }));
+app.get('/api/status', (_req, res) => res.json({ configured: Boolean(process.env.OPENAI_API_KEY), localAssistant: true, downtimeResearch: true, credentialSetup: linuxVm ? 'Configure OPENAI_API_KEY in the guest .env, chmod 600 .env, and restart the VM companion.' : 'Run powershell -NoProfile -File .\\localCredentials.ps1, then restart npm run local.' }));
 app.get('/api/local/config', (_req, res) => res.json({ roots: policy.roots, origins: policy.origins, note: 'Restricted local tools, not an OS sandbox. Every tool action requires approval. Text/page excerpts may be sent to OpenAI.' }));
 const pdfPending = new Map();
 app.post('/api/local/pdf/propose', endpoint(async req => {

@@ -5,6 +5,9 @@ import { approveProposal } from './learning.js';
 import express from 'express';
 import path from 'node:path';
 import { chromium } from 'playwright';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import { installResearch } from './researchLocal.js';
 
 function fixture() {
   let time = Date.UTC(2026, 10, 3);
@@ -23,6 +26,69 @@ function fixture() {
   const idle = () => { time += researchIdle; research.presence(false); };
   return { research, calls, idle, advance: ms => { time += ms; }, written: () => written };
 }
+
+test('local research settings persist across restarts without paid calls on Windows and Ubuntu', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'peppy-research-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  let aiCalls = 0;
+  const start = async stateDir => {
+    const app = express();
+    app.use(express.json());
+    await installResearch(app, stateDir, () => { aiCalls++; throw new Error('No AI call authorized.'); });
+    const server = app.listen(0, '127.0.0.1');
+    await new Promise(resolve => server.once('listening', resolve));
+    t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
+    return async (route = '', body) => {
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/api/local/research${route}`,
+        body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      return { status: response.status, data: await response.json() };
+    };
+  };
+  const request = await start(directory);
+  assert.equal((await request()).data.enabled, false);
+  const configured = await request('/configure', { enabled: true, topics: ['Harmless topic'] });
+  assert.equal(configured.status, 200);
+  await request('/conversation-settings', { invitationsEnabled: true, spokenInvitations: false, ideasEnabled: true });
+  const restart = await start(directory);
+  const restored = (await restart()).data;
+  assert.equal(restored.enabled, true);
+  assert.deepEqual(restored.topics, ['Harmless topic']);
+  assert.equal(restored.invitationsEnabled, true);
+  assert.equal(restored.spokenInvitations, false);
+  assert.equal(restored.ideasEnabled, true);
+  assert.equal(restored.eligible, false);
+  assert.equal((await restart('/plan', { approved: true })).status, 400);
+  assert.equal((await restart('/idea', { approved: false, findings: [] })).status, 400);
+  assert.equal(aiCalls, 0);
+  await restart('/configure', { enabled: false, topics: ['Another harmless topic'] });
+  assert.deepEqual(await fs.readdir(directory), ['research.json']);
+  const saved = JSON.parse(await fs.readFile(path.join(directory, 'research.json'), 'utf8'));
+  assert.equal(saved.enabled, false);
+  assert.deepEqual(saved.topics, ['Another harmless topic']);
+  const otherDirectory = path.join(directory, 'other-installation');
+  await fs.mkdir(otherDirectory);
+  const other = await start(otherDirectory);
+  assert.deepEqual((await other()).data.topics, []);
+});
+
+test('local research refuses malformed and hard-linked saved state', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'peppy-research-invalid-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'research.json');
+  await fs.writeFile(file, '{}', { mode: 0o600 });
+  await assert.rejects(installResearch(express(), directory, () => {}), /Invalid research state/);
+  await fs.link(file, path.join(directory, 'linked.json'));
+  await assert.rejects(installResearch(express(), directory, () => {}), /regular, unlinked file/);
+});
+
+test('local research retains Ubuntu private-file permission checks', { skip: process.platform !== 'linux' }, async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'peppy-research-permissions-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'research.json');
+  await fs.writeFile(file, '{}', { mode: 0o600 });
+  await fs.chmod(file, 0o644);
+  await assert.rejects(installResearch(express(), directory, () => {}), /owned by this user with chmod 600/);
+});
 
 test('downtime offers do not make paid calls; approvals, presence and independent domain permission are required', async () => {
   const f = fixture();
@@ -246,7 +312,7 @@ test('built research UI separates domain, paid-run and library approvals at mobi
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', route => route.request().url().startsWith(base) ? route.continue() : route.abort());
   await page.goto(base);
-  await page.getByText('Downtime research — Ubuntu only', { exact: true }).click();
+  await page.getByText('Downtime research — Windows and Ubuntu', { exact: true }).click();
   await page.getByRole('button', { name: 'Approve paid research session and propose pages', exact: true }).click();
   const run = page.getByRole('button', { name: 'Approve reading these pages and paid AI analysis', exact: true });
   await run.waitFor();
@@ -288,7 +354,7 @@ test('built research UI separates domain, paid-run and library approvals at mobi
   await page.getByRole('region', { name: 'Peppy conversation invitation' }).waitFor();
   await page.waitForTimeout(100);
   assert.equal(speeches.length, 1);
-  await page.getByText('Downtime research — Ubuntu only', { exact: true }).click();
+  await page.getByText('Downtime research — Windows and Ubuntu', { exact: true }).click();
   await page.getByRole('button', { name: 'Spoken replies', exact: true }).click();
   await page.getByLabel('Offer separate idea sessions after 15 idle minutes', { exact: true }).check();
   await page.getByRole('button', { name: 'Save invitation and idea settings', exact: true }).click();

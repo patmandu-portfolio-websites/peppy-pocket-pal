@@ -8,8 +8,8 @@ export async function installResearch(app, stateDir, createClient) {
   let state;
   try {
     const stat = await fs.lstat(file);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size > 1024 * 1024 ||
-        stat.uid !== process.getuid() || (stat.mode & 0o077)) throw new Error('Research state must be a private owned regular file.');
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size > 1024 * 1024) throw new Error('Research state must be a regular, unlinked file under 1 MiB.');
+    if (process.platform === 'linux' && (stat.uid !== process.getuid() || (stat.mode & 0o077))) throw new Error('Research state must be owned by this user with chmod 600.');
     state = JSON.parse(await fs.readFile(file, 'utf8'));
     if (typeof state.enabled !== 'boolean' || !Array.isArray(state.topics) || !Array.isArray(state.origins) ||
         !Array.isArray(state.drafts) || !Number.isInteger(state.runs) || state.runs < 0 || state.runs > 5) throw new Error('Invalid research state.');

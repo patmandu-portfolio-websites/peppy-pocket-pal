@@ -96,7 +96,7 @@ export default function ResearchPanel({ learning, saveLearning, chatBusy, spoken
       </section>;
     })}
     <details className="feature-panel">
-    <summary>Downtime research — Ubuntu only</summary>
+    <summary>Downtime research — Windows and Ubuntu</summary>
     <div className="feature-panel-body">
       <p>After 15 minutes without activity in this visible Peppy page, a session can be offered. Nothing is read or sent to AI until you approve. Maximum five session attempts per UTC day and ten pages per session. This builds reviewable knowledge, not model training or self-updates.</p>
       <p>Each session permits two paid AI requests: planning from your selected topics, then analysis of public website excerpts. Up to 50 pages daily; there is no hard dollar cap. Proposed URLs may be incorrect. No logged-in websites, Gmail, PDFs, browser-profile reads or automatic chat-history access.</p>
