@@ -71,6 +71,9 @@ function App() {
   useEffect(() => { fetch('/api/status').then(r => { if (!r.ok) throw new Error('Status unavailable'); return r.json(); }).then(setStatus).catch(() => setStatus({ unavailable: true })); }, []);
   const chatReady = Boolean(status && !status.unavailable && (!status.authenticationRequired || status.signedIn));
   useEffect(() => {
+    if (input.current) input.current.scrollTop = input.current.scrollHeight;
+  }, [chatReady, draft]);
+  useEffect(() => {
     if (!chatReady || !tail.current) { chatShown.current = false; return; }
     const firstDisplay = !chatShown.current;
     chatShown.current = true;
@@ -185,7 +188,7 @@ function App() {
               const data = await readChatImage(file);
               if (version === imageVersion.current) { setImage({ data, name: file.name }); setEditingImage(false); setImageError(''); }
             }} onClose={() => setEditingImage(false)}/></Suspense>}
-          <textarea ref={input} rows="1" value={draft} readOnly={voice.listening} onChange={e => setDraft(e.target.value)}
+          <textarea ref={input} rows="3" value={draft} readOnly={voice.listening} onChange={e => setDraft(e.target.value)}
             onPaste={event => {
               const files = [...event.clipboardData.files];
               if (!files.length) return;

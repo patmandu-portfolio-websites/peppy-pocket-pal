@@ -113,6 +113,22 @@ test('downtime offers do not make paid calls; approvals, presence and independen
   assert.equal(f.research.state.drafts.length, 1);
 });
 
+test('idle diagnostics report the exact threshold and reject expired visible-page presence', async () => {
+  const f = fixture();
+  await f.research.configure(true, ['Topic']);
+  f.research.presence(true);
+  assert.deepEqual(f.research.idleStatus(), { present: true, remainingMs: researchIdle });
+  f.advance(researchIdle - 1); f.research.presence(false);
+  assert.equal(f.research.idleStatus().remainingMs, 1);
+  assert.equal(f.research.eligible(), false);
+  f.advance(1); f.research.presence(false);
+  assert.deepEqual(f.research.idleStatus(), { present: true, remainingMs: 0 });
+  assert.equal(f.research.eligible(), true);
+  f.advance(90000);
+  assert.equal(f.research.idleStatus().present, false);
+  assert.equal(f.research.eligible(), false);
+});
+
 test('attempt quota persists before AI calls; exact five sessions and ten-page limits are enforced', async () => {
   const f = fixture();
   await f.research.configure(true, ['Topic']);
@@ -162,6 +178,48 @@ test('text-only reader rejects redirects/downloads and blocks script/embedded pa
   assert.equal(result, 'Public research text');
   await assert.rejects(readResearchPage('https://example.org/article', ['https://example.org'], async () => ({ status: 302 })), /redirected/);
   await assert.rejects(readResearchPage('https://example.org/article', ['https://example.org'], async () => ({ status: 200, headers: { 'content-type': 'application/pdf' } })), /not downloads/);
+});
+
+test('research page errors identify the exact URL and HTTP code with response-specific guidance and no retries', async () => {
+  const url = 'https://example.org/missing-article';
+  for (const [status, guidance] of [
+    [301, /redirected.*did not follow.*exact URL/s],
+    [302, /redirected.*did not follow/s],
+    [401, /denied access.*cannot sign in/s],
+    [403, /denied access.*bypass access restrictions/s],
+    [404, /not found.*outdated address/s],
+    [410, /removed.*existing public page/s],
+    [429, /rate-limiting.*not retry automatically/s],
+    [500, /server error.*Try later/s],
+    [503, /server error.*another public source/s],
+    [400, /unsuccessful response.*working public source/s]
+  ]) {
+    let calls = 0;
+    await assert.rejects(readResearchPage(url, ['https://example.org'], async () => {
+      calls++;
+      return { status };
+    }), error => {
+      assert.ok(error.message.includes(url));
+      assert.ok(error.message.includes(`HTTP ${status}`));
+      assert.match(error.message, guidance);
+      return true;
+    });
+    assert.equal(calls, 1);
+  }
+  const cause = new Error('The website request timed out.');
+  await assert.rejects(readResearchPage(url, ['https://example.org'], async () => { throw cause; }), error => {
+    assert.ok(error.message.includes(url));
+    assert.match(error.message, /HTTP status unavailable.*timed out.*no automatic retry/s);
+    assert.equal(error.cause, cause);
+    return true;
+  });
+  await assert.rejects(readResearchPage(url, ['https://example.org'], async () => ({
+    status: 200, headers: { 'content-type': 'application/pdf' }
+  })), error => {
+    assert.ok(error.message.includes(url));
+    assert.match(error.message, /HTTP 200.*not downloads.*Choose a public HTML/s);
+    return true;
+  });
 });
 
 test('ten successful page reads are bounded and saving evidence never enables AI inclusion', async () => {
@@ -270,7 +328,8 @@ test('built research UI separates domain, paid-run and library approvals at mobi
   app.use(express.json());
   app.get('/api/status', (_req, res) => res.json({ configured: true, downtimeResearch: true }));
   app.get('/api/local/research', (_req, res) => res.json({ ...f.research.state, eligible: true, ideasEligible: f.research.state.ideasEnabled }));
-  app.post('/api/local/research/presence', (_req, res) => res.json({ eligible: true }));
+  const heartbeats = [];
+  app.post('/api/local/research/presence', (req, res) => { heartbeats.push(req.body.active); res.json({ eligible: true }); });
   app.post('/api/local/research/conversation-settings', async (req, res) => {
     await f.research.conversationSettings(req.body.invitationsEnabled, req.body.spokenInvitations, req.body.ideasEnabled);
     res.json(f.research.state);
@@ -303,6 +362,12 @@ test('built research UI separates domain, paid-run and library approvals at mobi
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
   await page.addInitScript(() => {
+    window.researchTimers = [];
+    const interval = window.setInterval;
+    window.setInterval = (callback, delay, ...args) => {
+      if (delay === 30000) window.researchTimers.push(callback);
+      return interval(callback, delay, ...args);
+    };
     window.Audio = class {
       async play() { setTimeout(() => this.onended?.(), 20); }
       pause() {}
@@ -369,6 +434,30 @@ test('built research UI separates domain, paid-run and library approvals at mobi
   assert.equal(ideaCall.input.reviewedFindings[0].title, 'Draft');
   assert.equal(f.calls.filter(call => call.kind === 'read').length, 1);
   assert.equal(speeches.length, 1);
+  const initialHeartbeats = heartbeats.length;
+  await page.evaluate(async () => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    for (const pulse of window.researchTimers) await pulse();
+  });
+  assert.equal(heartbeats.length, initialHeartbeats, 'Hidden tabs must not reset shared idle activity or extend presence');
+  await page.evaluate(async () => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    document.dispatchEvent(new Event('visibilitychange'));
+    for (const pulse of window.researchTimers) await pulse();
+  });
+  assert.ok(heartbeats.length > initialHeartbeats, 'Visible tabs resume heartbeats');
+  f.idle();
+  f.research.read = (url, origins) => readResearchPage(url, origins, async () => ({ status: 404 }));
+  const analysisCalls = f.calls.filter(call => call.kind === 'notes').length;
+  await page.getByRole('button', { name: 'Approve paid research session and propose pages', exact: true }).click();
+  await run.waitFor();
+  await run.click();
+  const failure = page.getByRole('alert').filter({ hasText: 'HTTP 404' });
+  await failure.waitFor();
+  assert.match(await failure.textContent(), /https:\/\/example.org\/article \(HTTP 404\).*not found.*new research plan/s);
+  assert.equal(f.calls.filter(call => call.kind === 'notes').length, analysisCalls, 'Failed reads must not start paid analysis');
+  assert.equal(f.research.state.plan, null, 'Failed plans cannot be retried without new approval');
   assert.deepEqual(errors, []);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
 });

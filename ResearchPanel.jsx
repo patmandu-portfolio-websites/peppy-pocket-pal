@@ -34,12 +34,14 @@ export default function ResearchPanel({ learning, saveLearning, chatBusy, spoken
       }
     }).catch(cause => { if (live) setError(cause.message); });
     const pulse = async () => {
+      if (document.hidden) return;
+      const active = activity.current || activeChat.current;
+      activity.current = false;
       try {
-        await localRequest('/api/local/research/presence', { active: activity.current || activeChat.current || document.hidden });
-        activity.current = false;
+        await localRequest('/api/local/research/presence', { active });
         const data = await localRequest('/api/local/research');
         if (live) setState(data);
-      } catch (cause) { if (live) setError(cause.message); }
+      } catch (cause) { activity.current = activity.current || active; if (live) setError(cause.message); }
     };
     void pulse();
     const timer = setInterval(pulse, 30000);
@@ -77,6 +79,8 @@ export default function ResearchPanel({ learning, saveLearning, chatBusy, spoken
   const missing = [...new Set((state?.plan?.pages || []).map(page => new URL(page.url).origin))].filter(origin => !state.origins.includes(origin));
   const invitations = (state?.invitations || []).filter(item => item.status === 'pending');
   const reviewed = learning.entries.filter(entry => entry.kind === 'knowledge');
+  const idleStatus = state?.idleStatus;
+  const remaining = idleStatus ? `${Math.floor(idleStatus.remainingMs / 60000)}m ${Math.ceil(idleStatus.remainingMs % 60000 / 1000)}s` : null;
   const invitationCards = <div className="research-chat-alerts">
     {state?.invitationsEnabled && invitations.length > 0 && <p role="status">Peppy has {invitations.length} research or idea invitation(s) for you.</p>}
     {state?.invitationsEnabled && invitations.map(invitation => {
@@ -121,6 +125,14 @@ export default function ResearchPanel({ learning, saveLearning, chatBusy, spoken
       <p className="feature-status">{state?.ideasEligible ? 'Downtime reached: you may approve an idea session.' : 'Idea offers require approved topics, enablement and 15 idle minutes.'} Idea attempts today: {state?.ideaDay === new Date().toISOString().slice(0, 10) ? state.ideaRuns : 0}/5.</p>
       <button type="button" disabled={locked || !state?.ideasEligible || selectedFindings.length > 10} onClick={() => action('idea', { approved: true, findings: reviewed.filter(entry => selectedFindings.includes(entry.id)) })}>Approve paid idea session using topics and selected findings</button>
       <p className="feature-status">{state?.eligible ? 'Downtime reached: you may approve a research session.' : 'Waiting for 15 minutes of inactivity with research enabled.'} Attempts today: {state?.day === new Date().toISOString().slice(0, 10) ? state.runs : 0}/5.</p>
+      <p role="status">{!state ? 'Checking research availability...' : !state.enabled ? 'Save research settings with research enabled first.' :
+        chatBusy ? 'Timer paused: clear your unsent text/image and finish chat, voice or local approvals.' :
+        locked ? 'Another research operation is in progress.' :
+        state.plan ? 'A reading plan is already pending. Review it or discard it below.' :
+        !visible ? 'Keep this Peppy page visible to receive downtime offers.' :
+        idleStatus && !idleStatus.present ? 'Waiting for a visible-page heartbeat. Keep this page open; status updates every 30 seconds.' :
+        remaining && !state.eligible ? `Idle time remaining: ${remaining}. Updates every 30 seconds. Interaction in any visible Peppy tab resets the timer.` :
+        state.eligible ? 'Ready: approve the paid session below. No AI request has started.' : 'Waiting for the next visible-page heartbeat.'}</p>
       <button type="button" disabled={locked || !state?.eligible || Boolean(state.plan)} onClick={() => action('plan', { approved: true })}>Approve paid research session and propose pages</button>
       {state?.plan && <ApprovalSection key={state.plan.id} title="Review proposed reading plan">
         <p>Plan expires in 30 minutes. Links have not been read or verified. Domain approval is for this research feature only, not file/browser tools.</p>

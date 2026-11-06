@@ -17,10 +17,32 @@ export function researchUrl(value) {
 
 export async function readResearchPage(url, origins, fetchPage = fetchAuthorized) {
   const policy = new LocalPolicy({ roots: [process.cwd()], origins });
-  const response = await fetchPage(policy, researchUrl(url), 512 * 1024, { signal: AbortSignal.timeout(20000) });
-  if (response.status < 200 || response.status >= 300) throw new Error('Research page failed or redirected. Approve the exact final URL separately.');
+  const pageUrl = researchUrl(url);
+  let response;
+  try {
+    response = await fetchPage(policy, pageUrl, 512 * 1024, { signal: AbortSignal.timeout(20000) });
+  } catch (cause) {
+    throw new Error(`Research page failed: ${pageUrl} (HTTP status unavailable). ${cause.message} Check the address and connection; no automatic retry was made.`, { cause });
+  }
+  if (response.status < 200 || response.status >= 300) {
+    let guidance;
+    if (response.status >= 300 && response.status < 400) {
+      guidance = 'The website redirected the request. Peppy did not follow it. Check the final public HTTPS address in your browser and review that exact URL in a new research plan; approve its domain separately if needed.';
+    } else if (response.status === 401 || response.status === 403) {
+      guidance = 'The website denied access or requires sign-in. Use another publicly accessible source; Peppy cannot sign in or bypass access restrictions.';
+    } else if (response.status === 404 || response.status === 410) {
+      guidance = 'The page was not found or has been removed. Check for an incorrect or outdated address and use an existing public page in a new research plan.';
+    } else if (response.status === 429) {
+      guidance = 'The website is rate-limiting requests. Wait before approving a new research session, or choose another public source. Peppy will not retry automatically.';
+    } else if (response.status >= 500) {
+      guidance = 'The website reported a server error. Try later through a newly approved research session, or choose another public source.';
+    } else {
+      guidance = 'The website returned an unsuccessful response. Check the page in your browser and choose a working public source in a new research plan.';
+    }
+    throw new Error(`Research page failed: ${pageUrl} (HTTP ${response.status}). ${guidance}`);
+  }
   const type = response.headers['content-type'] || '';
-  if (!/^text\/(?:html|plain)\b/i.test(type)) throw new Error('Research accepts only public HTML or plain text, not downloads.');
+  if (!/^text\/(?:html|plain)\b/i.test(type)) throw new Error(`Research page failed: ${pageUrl} (HTTP ${response.status}). Research accepts only public HTML or plain text, not downloads. Choose a public HTML or plain-text page in a new research plan.`);
   if (/^text\/plain\b/i.test(type)) return checkedText(response.body.toString('utf8').slice(0, 8000), 'Website excerpt', 8000);
   const browser = await chromium.launch({ headless: true });
   try {
@@ -49,6 +71,10 @@ export class Research {
   }
   eligible() {
     return this.state.enabled && this.idle();
+  }
+  idleStatus() {
+    return { present: this.now() - this.seen < 90000,
+      remainingMs: Math.max(0, researchIdle - (this.now() - this.activity)) };
   }
   idle() {
     return this.now() - this.seen < 90000 && this.now() - this.activity >= researchIdle;

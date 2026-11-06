@@ -57,7 +57,7 @@ export async function installResearch(app, stateDir, createClient) {
       res.status(400).json({ error: error.message });
     }
   };
-  app.get('/api/local/research', (_req, res) => res.json({ ...research.state, busy: research.busy, eligible: research.eligible(), ideasEligible: research.ideasEligible() }));
+  app.get('/api/local/research', (_req, res) => res.json({ ...research.state, busy: research.busy, eligible: research.eligible(), ideasEligible: research.ideasEligible(), idleStatus: research.idleStatus() }));
   app.post('/api/local/research/conversation-settings', endpoint(async req => {
     await research.conversationSettings(req.body.invitationsEnabled, req.body.spokenInvitations, req.body.ideasEnabled); return research.state;
   }));
