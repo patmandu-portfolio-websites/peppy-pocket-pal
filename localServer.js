@@ -18,6 +18,8 @@ import { installResearch } from './researchLocal.js';
 import { chatInput } from './chatInput.js';
 import { createWebChat, installPlacePhotoRoute } from './webSearch.js';
 import { installAppleMusic } from './appleMusicServer.js';
+import { songWorkshopHandler } from './songWorkshop.js';
+import { installSuno } from './sunoApi.js';
 
 const linuxVm = process.platform === 'linux' && process.env.PEPPY_VM === '1';
 if ((!linuxVm && process.platform !== 'win32') || process.env.RENDER || process.env.NODE_ENV === 'production') throw new Error('Local assistant requires Windows or explicitly enabled Linux VM mode (PEPPY_VM=1); it cannot run on Render or in production mode.');
@@ -60,21 +62,21 @@ catch (error) {
   console.error(linuxVm ? 'Guest credentials unavailable; configure private .env before AI/speech.' : 'Local credentials unavailable. Run powershell -File .\\localCredentials.ps1 before using AI or speech.', error.message);
   delete process.env.OPENAI_API_KEY;
 }
-async function loadGoogleMapsKey() {
-  if (process.env.GOOGLE_MAPS_API_KEY) return process.env.GOOGLE_MAPS_API_KEY;
+async function loadOptionalKey(name) {
+  if (process.env[name]) return process.env[name];
   const envPath = path.join(here, '.env');
   try {
     const stat = await fs.lstat(envPath);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size > 16384) throw new Error('Local .env must be a regular, unlinked file under 16 KiB.');
     if (linuxVm && (stat.uid !== process.getuid() || (stat.mode & 0o077))) throw new Error('Guest .env must be owned by this user with chmod 600.');
-    return dotenv.parse(await fs.readFile(envPath, 'utf8')).GOOGLE_MAPS_API_KEY;
+    return dotenv.parse(await fs.readFile(envPath, 'utf8'))[name];
   } catch (error) {
     if (error.code === 'ENOENT') return undefined;
     throw error;
   }
 }
 try {
-  const mapsKey = await loadGoogleMapsKey();
+  const mapsKey = await loadOptionalKey('GOOGLE_MAPS_API_KEY');
   if (mapsKey) process.env.GOOGLE_MAPS_API_KEY = mapsKey;
   else delete process.env.GOOGLE_MAPS_API_KEY;
 }
@@ -86,6 +88,13 @@ const createClient = () => {
   if (!process.env.OPENAI_API_KEY) throw new Error(linuxVm ? 'Configure a private guest .env key, then restart VM mode.' : 'Set up the encrypted API key using localCredentials.ps1, then restart local mode.');
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 };
+try {
+  const sunoKey = await loadOptionalKey('SUNO_API_KEY');
+  if (sunoKey) process.env.SUNO_API_KEY = sunoKey;
+} catch {
+  console.error('SunoAPI credentials unavailable; audio generation is disabled.');
+  delete process.env.SUNO_API_KEY;
+}
 const assistant = new LocalAssistant(tools, createClient);
 const app = express();
 const origin = 'http://127.0.0.1:3030';
@@ -106,6 +115,8 @@ app.use(['/api/chat', '/api/local/chat'], express.json({ limit: '6mb' }));
 app.use('/api/local/pdf/propose', express.json({ limit: '1mb' }));
 app.use(express.json({ limit: '128kb' }));
 installAppleMusic(app);
+installSuno(app);
+app.post('/api/music/draft', songWorkshopHandler(createClient));
 installPlacePhotoRoute(app, () => process.env.GOOGLE_MAPS_API_KEY);
 const gmail = await installLocalGmail(app, stateDir);
 await installResearch(app, stateDir, createClient);

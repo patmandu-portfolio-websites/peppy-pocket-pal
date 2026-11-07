@@ -13,6 +13,9 @@ import { parseMusicCommand } from './appleMusic.js';
 import AppleMusicPanel, { useAppleMusic } from './AppleMusicPanel.jsx';
 import { amazonSearchLink, parseAmazonCommand } from './amazonLinks.js';
 import AmazonLinksPanel from './AmazonLinksPanel.jsx';
+import PeppyFace, { useIdleExpression } from './PeppyFace.jsx';
+import { replyExpression } from './peppyExpression.js';
+import SongWorkshopPanel from './SongWorkshopPanel.jsx';
 const HostedPdfPanel = lazy(() => import('./HostedPdfPanel.jsx'));
 const GmailPanel = lazy(() => import('./GmailPanel.jsx'));
 const ResearchPanel = lazy(() => import('./ResearchPanel.jsx'));
@@ -66,6 +69,7 @@ function App() {
   const [name, setName] = useState(saved.name);
   const [spokenReplies, setSpokenReplies] = useState(saved.spokenReplies);
   const [voiceSendEnabled, setVoiceSendEnabled] = useState(saved.voiceSendEnabled === true);
+  const [faceAnimated, setFaceAnimated] = useState(saved.faceAnimated !== false);
   const [selectedVoice, setSelectedVoice] = useState(speechVoices.includes(saved.selectedVoice) ? saved.selectedVoice : defaultVoice);
   const [draft, setDraft] = useState('');
   const [image, setImage] = useState(null);
@@ -75,6 +79,7 @@ function App() {
   const imagePicker = useRef(null);
   const imageVersion = useRef(0);
   const [loading, setLoading] = useState(false);
+  const [songBusy, setSongBusy] = useState(false);
   const [status, setStatus] = useState(null);
   const [panel, setPanel] = useState('');
   const [menu, setMenu] = useState(false);
@@ -103,13 +108,20 @@ function App() {
   const input = useRef(null);
   const conversation = useRef(0);
   const music = useAppleMusic();
+  const songWorkshop = useRef(null);
   const voice = useVoiceChat({ enabled: spokenReplies, selectedVoice, voiceSendEnabled, onTranscript: setDraft, onVoiceSend: send });
+  const faceState = voice.listening ? 'listening' : voice.speaking ? 'speaking' : loading || songBusy || voice.preparing || imageBusy ? 'thinking' : 'idle';
   const lastReply = [...messages].reverse().find(m => m.role === 'assistant');
+  const idleExpression = useIdleExpression(faceAnimated && faceState === 'idle' && !draft.trim() && !image &&
+    !localTask?.pending && !localTask?.canContinue && Boolean(status && !status.unavailable && (!status.authenticationRequired || status.signedIn)), messages);
+  const faceExpression = idleExpression || replyExpression(lastReply?.content);
+  const faceLabel = faceState === 'idle' && faceExpression !== 'neutral' ? faceExpression :
+    { idle: 'here with you', listening: 'listening', thinking: 'thinking', speaking: 'speaking' }[faceState];
   useEffect(() => {
     const savedMessages = messages.map(({ places, ...message }) =>
       places?.length ? { ...message, content: '[Live place details are not saved in chat history.]' } : message);
-    localStorage.setItem(KEY, JSON.stringify({ messages: savedMessages, memory, name, spokenReplies, selectedVoice, voiceSendEnabled }));
-  }, [messages, memory, name, spokenReplies, selectedVoice, voiceSendEnabled]);
+    localStorage.setItem(KEY, JSON.stringify({ messages: savedMessages, memory, name, spokenReplies, selectedVoice, voiceSendEnabled, faceAnimated }));
+  }, [messages, memory, name, spokenReplies, selectedVoice, voiceSendEnabled, faceAnimated]);
   useEffect(() => { fetch('/api/status').then(r => { if (!r.ok) throw new Error('Status unavailable'); return r.json(); }).then(setStatus).catch(() => setStatus({ unavailable: true })); }, []);
   const chatReady = Boolean(status && !status.unavailable && (!status.authenticationRequired || status.signedIn));
   useEffect(() => {
@@ -145,14 +157,21 @@ function App() {
     voice.stopAll();
     const currentConversation = conversation.current;
     const attachedImage = image;
-    const amazonCommand = !attachedImage && parseAmazonCommand(content);
-    const musicCommand = !attachedImage && !amazonCommand && parseMusicCommand(content);
+    const songCommand = !attachedImage && /^peppy[\s,]+(?:write|create|make|draft)\s+(?:me\s+)?(?:a\s+)?song\s+about\s+(.+)$/i.exec(content);
+    const amazonCommand = !attachedImage && !songCommand && parseAmazonCommand(content);
+    const musicCommand = !attachedImage && !songCommand && !amazonCommand && parseMusicCommand(content);
     const next = [...messages, { role: 'user', content: content || 'Please describe or transcribe this image.',
-      ...(attachedImage ? { imageAttached: true } : {}), ...(musicCommand ? { musicOnly: true } : {}), ...(amazonCommand ? { amazonOnly: true } : {}) }];
-    const requestMessages = next.filter(message => !message.musicOnly && !message.amazonOnly).slice(-16).map((message, index, recent) =>
+      ...(attachedImage ? { imageAttached: true } : {}), ...(musicCommand ? { musicOnly: true } : {}), ...(amazonCommand ? { amazonOnly: true } : {}), ...(songCommand ? { songOnly: true } : {}) }];
+    const requestMessages = next.filter(message => !message.musicOnly && !message.amazonOnly && !message.songOnly).slice(-16).map((message, index, recent) =>
       attachedImage && index === recent.length - 1 ? { ...message, image: attachedImage.data } : message);
     setMessages(next); setDraft(''); setImage(null); setImageError(''); setLoading(true);
     try {
+      if (songCommand) {
+        const result = await songWorkshop.current.draftFromChat(songCommand[1].trim());
+        if (currentConversation === conversation.current) setMessages([...next, { role: 'assistant',
+          content: `${result.title}\n\n${result.lyrics}\n\nMusic style: ${result.style}\n\nReview and edit this draft in the Song workshop below. Audio has not been generated. Use the separate paid-generation approval there, or copy it to Suno manually.`, songOnly: true }]);
+        return;
+      }
       if (amazonCommand) {
         const url = amazonSearchLink(amazonCommand.query);
         const reply = `Open this Amazon Australia search link to browse products:\n${url}\nSign in, review prices and availability, and shop manually on Amazon. Peppy has not opened Amazon or changed your cart.`;
@@ -171,7 +190,7 @@ function App() {
       if (localEnabled) setLocalTask(data);
       setMessages([...next, { role: 'assistant', content: data.reply, sources: data.sources, places: data.places }]);
       voice.speak(data.reply, true);
-    } catch (err) { if (currentConversation === conversation.current) { setMessages([...next, { role: 'assistant', content: `Oh! ${err.message}`, ...(musicCommand ? { musicOnly: true } : {}), ...(amazonCommand ? { amazonOnly: true } : {}) }]); if (attachedImage) { setImage(attachedImage); setDraft(content); setImageError('Request failed. The image is restored for review; sending again may incur another charge.'); } } }
+    } catch (err) { if (currentConversation === conversation.current) { setMessages([...next, { role: 'assistant', content: `Oh! ${err.message}`, ...(musicCommand ? { musicOnly: true } : {}), ...(amazonCommand ? { amazonOnly: true } : {}), ...(songCommand ? { songOnly: true } : {}) }]); if (attachedImage) { setImage(attachedImage); setDraft(content); setImageError('Request failed. The image is restored for review; sending again may incur another charge.'); } } }
     finally { if (currentConversation === conversation.current) { setLoading(false); input.current?.focus(); } }
   }
 
@@ -220,12 +239,12 @@ function App() {
         }}>Sign out</button>}
         <div className="mobile-brand"><span className="tiny-mark">p</span><span>peppy</span></div>
         <button className="top-title" onClick={() => setPanel('settings')}>Your pocket pal <ChevronRight size={15}/></button>
-        <div className="top-actions"><span className="online"><i/> here with you</span><button className="icon-button mobile-menu" aria-label="Open menu" onClick={() => setMenu(!menu)}><Menu size={20}/></button><button className="icon-button desktop-settings" aria-label="Preferences" onClick={() => setPanel('settings')}><Settings2 size={19}/></button></div>
+        <div className="top-actions"><div className="peppy-presence"><PeppyFace state={faceState} expression={faceExpression} animated={faceAnimated}/><span aria-hidden="true">{faceLabel}</span></div><button className="icon-button mobile-menu" aria-label="Open menu" onClick={() => setMenu(!menu)}><Menu size={20}/></button><button className="icon-button desktop-settings" aria-label="Preferences" onClick={() => setPanel('settings')}><Settings2 size={19}/></button></div>
       </header>
 
       <section className={`conversation ${messages.length ? 'has-messages' : ''}`}>
         {messages.length === 0 ? <div className="welcome-wrap">
-          <div className="hello-illustration"><div className="spark s1">✦</div><div className="spark s2">✳</div><div className="blob"><span className="eyes">•　•</span><span className="smile">⌣</span><i className="cheek c1"/><i className="cheek c2"/></div><div className="hello-heart">♥</div></div>
+          <div className="hello-illustration"><div className="spark s1">✦</div><div className="spark s2">✳</div><PeppyFace state={faceState} expression={faceExpression} animated={faceAnimated} decorative/><div className="hello-heart">♥</div></div>
           <div className="eyebrow"><Sparkles size={13}/> YOUR LITTLE CORNER OF THE INTERNET</div>
           <h1>{name ? `Hey, ${name}!` : 'Hey, friend!'}<br/><span>What’s on your mind?</span></h1>
           <p className="welcome-copy">I’m Peppy — here for the big thoughts, tiny wins,<br className="wide-only"/> weird questions, and everything in between.</p>
@@ -283,6 +302,9 @@ function App() {
         </div>
         <label className="voice-send-option"><input type="checkbox" checked={voiceSendEnabled} onChange={e => setVoiceSendEnabled(e.target.checked)}/> Enable “Peppy, send” voice command</label>
         <p className="voice-help">When enabled, finish your dictation with “Peppy, send” to send without tapping Send. Tap the microphone first; Peppy does not listen in the background.</p>
+        <label className="face-preference"><input type="checkbox" checked={faceAnimated} onChange={e => setFaceAnimated(e.target.checked)}/> Animate Peppy's face</label>
+        <p className="voice-help">Peppy's face blinks and responds to listening, thinking and spoken playback. Happy, excited and surprised expressions follow simple tone cues in Peppy's reply, not your emotions. Mouth movement is expressive, not word-by-word lip-sync. Reduced-motion settings stop face animations; static expressions still show.</p>
+        <p className="voice-help">When quiet for 20 seconds, Peppy briefly winks or makes a cheeky face. Typing, voice activity, attachments and pending approvals pause these playful faces. They are off when animations are disabled or reduced motion is enabled.</p>
         <p className="voice-help">Peppy’s voice is AI-generated by OpenAI, not a human. Spoken replies and previews incur additional API charges.</p>
         {voice.error && <p className="voice-error" role="alert">{voice.error}</p>}
         {!voice.canListen && <p className="voice-help">Voice input requires a supported browser and HTTPS (or localhost). Text chat is still available.</p>}
@@ -297,6 +319,7 @@ function App() {
           {status?.localAssistant && <LocalAssistantPanel enabled={localEnabled} onToggle={value => { voice.stopAll(); setLocalEnabled(value); setLocalTask(null); }} task={localTask} busy={loading} onApproval={localAction} onContinue={() => localAction()}/>}
           <AppleMusicPanel music={music} stopVoice={voice.stopAll}/>
           <AmazonLinksPanel stopVoice={voice.stopAll}/>
+          <SongWorkshopPanel ref={songWorkshop} stopVoice={voice.stopAll} onBusyChange={setSongBusy}/>
         </div>
       </footer>
     </main>

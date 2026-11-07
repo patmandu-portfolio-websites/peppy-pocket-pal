@@ -13,8 +13,11 @@ import { CloudPdfStore, pdfService, installPdfRoutes, installPdfCleanup } from '
 import { chatInput } from './chatInput.js';
 import { createWebChat, installPlacePhotoRoute } from './webSearch.js';
 import { installAppleMusic } from './appleMusicServer.js';
+import { songWorkshopHandler } from './songWorkshop.js';
+import { installSuno, installSunoCallback } from './sunoApi.js';
 
 const app = express();
+installSunoCallback(app);
 const port = Number(process.env.PORT || 3000);
 const here = path.dirname(fileURLToPath(import.meta.url));
 app.use('/api/chat', express.json({ limit: '6mb' }));
@@ -44,6 +47,8 @@ if (hosted) {
 
 app.get('/api/status', (req, res) => res.json({ configured: Boolean(process.env.OPENAI_API_KEY), authenticationRequired: Boolean(hosted), signedIn: req.hostedSignedIn === true }));
 installAppleMusic(app);
+installSuno(app);
+app.post('/api/music/draft', songWorkshopHandler(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })));
 installPlacePhotoRoute(app, () => process.env.GOOGLE_MAPS_API_KEY);
 app.post('/api/speech', createSpeechHandler(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })));
 app.post('/api/learning/propose', learningHandler(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })));

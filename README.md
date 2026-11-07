@@ -15,6 +15,40 @@ The API key is read by the server and is never sent to the browser. API usage ma
 
 Normal chat can use OpenAI web search to answer current questions and show cited source links; those questions are sent to OpenAI for search. Search requests may incur OpenAI charges. For structured business hours and an optional establishment photo preview, configure `GOOGLE_MAPS_API_KEY` in `.env` and in Render's environment variables; opening-hours queries are also sent to Google Places, and Places API (New) and billing must be enabled for that Google Cloud project. Without it, Peppy can still search the web, but business hours may be less precise and photo cards are unavailable. Live Google Places details and replies that use them are temporary and are omitted from saved chat history. Do not put either key in browser code.
 
+## Peppy's animated face
+
+Peppy's original face now blinks and shows listening, thinking and speaking expressions. A compact face stays visible in the sticky chat header on desktop and phone, with a larger version on the welcome screen. Listening follows the active microphone; thinking covers chat requests, image preparation and speech generation; speaking follows actual audio playback and ends when playback finishes or is stopped. Mouth movement is a simple expressive animation, not phoneme/word-level lip-sync.
+
+The **Animate Peppy's face** checkbox below the voice controls is saved in this browser. Disabling it or enabling your device/browser's reduced-motion setting stops face animations while keeping static activity expressions and labels. SVG/CSS animation adds no API requests, subscriptions, microphone access or external assets. The shared UI applies to Windows, Ubuntu and Render after rebuilding/deploying.
+
+Happy, excited and surprised expressions are selected automatically from conservative opening-text cues in Peppy's latest reply (for example, "Wonderful", "Hooray" or "Wow"). This is a simple heuristic, not a sentiment model or a reading of the user's feelings; ambiguous replies keep the normal face. The expression remains until another reply or a new chat and is derived again from saved history. Listening/thinking override it temporarily; during speech, expressive eyes remain while the mouth animates. Happy eyes curve upward, excited eyes gently bounce, and surprise uses wide eyes, raised brows and a round mouth. The animation toggle and reduced-motion setting also stop the excited bounce. No additional API call is made.
+
+After 20 seconds without chat/voice activity or a draft, Peppy briefly alternates a wink and a cheeky tongue-out face (2.5 seconds each, separated by 20 seconds). This works on the welcome screen and during quiet chats, then restores the reply expression. Attachments and pending local approvals pause it too. Hidden tabs, disabled animations and reduced motion stop playful faces; returning to the tab starts a fresh idle wait. There are no background requests or sounds.
+
+Live acceptance (8 November 2026): the user confirmed the animated face looks good locally on Windows, the mouth moves during spoken replies, Peppy winks after 20 seconds of idle time, and the cheeky tongue-out face appears. This confirms expressive speaking animation, not precise word-level lip-sync. Live acceptance of automatic happy/excited/surprised expressions remains pending, as do Render/phone and Ubuntu checks.
+
+## Song workshop (manual Suno handoff)
+
+Open **Song workshop - lyrics and music prompt** on Windows, Ubuntu or Render (desktop/phone). Enter a song idea, genre and mood, then click **Generate song draft**. This uses the installation's existing OpenAI credentials/model and incurs API charges. Only these three fields are sent to OpenAI, not chat history or memories. Generation requests use existing hosted/local access controls; no additional keys are needed.
+
+Review/edit the title, original lyrics and music-style prompt. Use **Copy lyrics** and **Copy style prompt**, then **Open Suno** and paste into its custom song fields yourself. If clipboard access fails, Peppy reports it and you can select/copy manually. Drafts are temporary, not automatically saved; copy them before reloading. Failed regeneration keeps the previous draft; successful regeneration replaces it.
+
+Manual handoff remains available without audio-generation credentials. Suno requires its own account and has plan/generation/licensing limits; a free website plan is not a free Peppy/OpenAI API or a guarantee of commercial rights. Check current terms before publishing. Do not supply existing copyrighted lyrics, credentials or sensitive information. No new dependencies were added.
+
+### SunoAPI.org paid audio generation and chat
+
+Type or dictate **Peppy, write a song about a new adventure** and Send. This drafts lyrics/style using OpenAI and opens the workshop for review; it never starts paid audio generation. The workshop's genre/mood apply to chat drafts too. Recognised song commands and their replies are excluded from later AI chat requests. Saved chat retains draft text, but editable workshop state is temporary.
+
+Set `SUNO_API_KEY` privately in the local `.env` and Render Environment settings (never a `VITE_` variable). Restart `npm run dev` / the local companion after changing credentials; deploy the updated build on Render. Windows companion loads this optional key from `.env` without changing its encrypted OpenAI key. No credentials are included in responses/logs or sent to APIMart.
+
+Review the editable draft, check the approval checkbox and click **Generate song — uses paid credits**. Only the reviewed title, lyrics and style are sent to the third-party SunoAPI.org provider at `https://api.sunoapi.org/api/v1`, using Bearer authentication and the user's selected `V4_5PLUS` model (deprecated but documented for compatibility). Limits: title 80 characters, lyrics 5000, style 1000. **Cost unavailable** is shown before approval; provider credits are charged separately from OpenAI drafting. Peppy does not invent a per-track price or actual billing amount; consult your provider dashboard.
+
+Generation uses custom lyrics with vocals. The required callback is `https://peppy-pocket-pal.onrender.com/api/music/suno/callback`; deploy Render first. This public endpoint only acknowledges notifications, does not trust/save their content and never executes actions. Windows and Render each poll their own authenticated provider tasks independently; no task/account synchronization or local tunnel is introduced. The callback is registered before hosted sign-in middleware so provider notifications need no Google login. Other song routes remain behind existing hosted/local access controls, and generation requires same-origin approval in development too.
+
+Task progress is polled every 10 seconds, stopping on completion/failure, a lookup error, a hidden tab or after 10 minutes. **Refresh song status** performs a lookup without another paid generation. Results are external HTTPS song links opened only by clicking; no auto-play or external images load. Provider documentation states files are retained for 14 days; save your songs in the provider's supported way before expiry.
+
+Approvals use a request identifier with server-side duplicate suppression; repeated submissions with that identifier do not create another song. Unknown submission outcomes are not retried automatically and are explicitly reported because credits may already have been used. Check the provider dashboard before creating another draft/approval after an uncertain result. Task/approval records are in memory for up to 24 hours (100 submissions per process); reloading loses the workshop reference, and server restarts/multiple instances do not share these records. Use the provider dashboard if a reference is lost; do not infer a failed generation or refund from missing local state. Integration tests use mocked provider responses; no live paid generation is performed by tests.
+
 ## What it includes
 
 - Mobile-friendly installable PWA shell with offline app-shell caching.
