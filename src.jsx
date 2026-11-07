@@ -13,6 +13,33 @@ const GmailPanel = lazy(() => import('./GmailPanel.jsx'));
 const ResearchPanel = lazy(() => import('./ResearchPanel.jsx'));
 const ImageEditor = lazy(() => import('./ImageEditor.jsx'));
 
+function SearchCards({ sources = [], places = [] }) {
+  if (!sources.length && !places.length) return null;
+  return <div className="search-cards">
+    {places.map((place, index) => <section className="place-card" key={`${place.name}-${index}`}>
+      {place.photo && <img className="place-photo" src={place.photo} alt={`Photo of ${place.name}`} loading="lazy"/>}
+      <div className="place-card-body">
+        <h3>{place.name}</h3>
+        {place.address && <p>{place.address}</p>}
+        {place.openNow !== null && <p className={place.openNow ? 'place-open' : 'place-closed'}>{place.openNow ? 'Open now' : 'Closed now'}</p>}
+        {place.hours.length > 0 && <details><summary>Opening hours</summary><ul>{place.hours.map((hours, i) => <li key={i}>{hours}</li>)}</ul></details>}
+        <div className="place-links">
+          {place.website && <a href={place.website} target="_blank" rel="noreferrer">Website</a>}
+          {place.map ? <a className="google-maps-attribution" href={place.map} target="_blank" rel="noreferrer" translate="no">Google Maps</a> :
+            <span className="google-maps-attribution" translate="no">Google Maps</span>}
+        </div>
+        {place.photo && <p className="photo-attribution">Photo via Google Places{place.photoAttributions.map((credit, i) => credit.url ?
+          <React.Fragment key={i}> · <a href={credit.url} target="_blank" rel="noreferrer">{credit.name}</a></React.Fragment> :
+          <React.Fragment key={i}> · {credit.name}</React.Fragment>)}</p>}
+      </div>
+    </section>)}
+    {sources.length > 0 && <section className="source-list" aria-label="Web search sources">
+      <h3>Sources</h3>
+      <ul>{sources.map((source, i) => <li key={`${source.url}-${i}`}><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a></li>)}</ul>
+    </section>}
+  </div>;
+}
+
 const KEY = 'peppy-state-v1';
 const firstState = { messages: [], memory: '', name: '', spokenReplies: false, selectedVoice: defaultVoice };
 const topics = [
@@ -67,7 +94,11 @@ function App() {
   const conversation = useRef(0);
   const voice = useVoiceChat({ enabled: spokenReplies, selectedVoice, voiceSendEnabled, onTranscript: setDraft, onVoiceSend: send });
   const lastReply = [...messages].reverse().find(m => m.role === 'assistant');
-  useEffect(() => { localStorage.setItem(KEY, JSON.stringify({ messages, memory, name, spokenReplies, selectedVoice, voiceSendEnabled })); }, [messages, memory, name, spokenReplies, selectedVoice, voiceSendEnabled]);
+  useEffect(() => {
+    const savedMessages = messages.map(({ places, ...message }) =>
+      places?.length ? { ...message, content: '[Live place details are not saved in chat history.]' } : message);
+    localStorage.setItem(KEY, JSON.stringify({ messages: savedMessages, memory, name, spokenReplies, selectedVoice, voiceSendEnabled }));
+  }, [messages, memory, name, spokenReplies, selectedVoice, voiceSendEnabled]);
   useEffect(() => { fetch('/api/status').then(r => { if (!r.ok) throw new Error('Status unavailable'); return r.json(); }).then(setStatus).catch(() => setStatus({ unavailable: true })); }, []);
   const chatReady = Boolean(status && !status.unavailable && (!status.authenticationRequired || status.signedIn));
   useEffect(() => {
@@ -113,7 +144,7 @@ function App() {
       if (!response.ok) throw new Error(data.error || 'Something went wrong.');
       if (currentConversation !== conversation.current) return;
       if (localEnabled) setLocalTask(data);
-      setMessages([...next, { role: 'assistant', content: data.reply }]);
+      setMessages([...next, { role: 'assistant', content: data.reply, sources: data.sources, places: data.places }]);
       voice.speak(data.reply, true);
     } catch (err) { if (currentConversation === conversation.current) { setMessages([...next, { role: 'assistant', content: `Oh! ${err.message}` }]); if (attachedImage) { setImage(attachedImage); setDraft(content); setImageError('Request failed. The image is restored for review; sending again may incur another charge.'); } } }
     finally { if (currentConversation === conversation.current) { setLoading(false); input.current?.focus(); } }
@@ -175,7 +206,7 @@ function App() {
           <p className="welcome-copy">I’m Peppy — here for the big thoughts, tiny wins,<br className="wide-only"/> weird questions, and everything in between.</p>
           <div className="topic-grid">{topics.map(t => <button className="topic-card" key={t.label} onClick={() => send(t.prompt)}><span className="topic-emoji">{t.icon}</span><span>{t.label}</span><ArrowUp className="topic-arrow" size={14}/></button>)}</div>
           <button className="memory-nudge" onClick={() => setPanel('memory')}><span className="nudge-icon"><Heart size={15}/></span><span><b>Make this feel more like us</b><small>Add a few things for me to remember about you</small></span><ChevronRight size={17}/></button>
-        </div> : <div className="message-list">{messages.map((m, i) => <article className={`message ${m.role}`} key={i}><div className={`message-avatar ${m.role}`}>{m.role === 'assistant' ? 'p' : (name ? name[0].toUpperCase() : '✿')}</div><div className="message-content"><div className="message-label">{m.role === 'assistant' ? 'Peppy' : name || 'You'}{m.role === 'assistant' && i === messages.length - 1 && <button className="copy-button" onClick={copyLast}>{copied ? <Check size={12}/> : null}{copied ? 'Copied' : 'Copy reply'}</button>}</div><p>{m.content}</p></div></article>)}{loading && <article className="message assistant"><div className="message-avatar assistant">p</div><div className="message-content"><div className="message-label">Peppy</div><div className="typing"><i/><i/><i/></div></div></article>}<div ref={tail}/></div>}
+        </div> : <div className="message-list">{messages.map((m, i) => <article className={`message ${m.role}`} key={i}><div className={`message-avatar ${m.role}`}>{m.role === 'assistant' ? 'p' : (name ? name[0].toUpperCase() : '✿')}</div><div className="message-content"><div className="message-label">{m.role === 'assistant' ? 'Peppy' : name || 'You'}{m.role === 'assistant' && i === messages.length - 1 && <button className="copy-button" onClick={copyLast}>{copied ? <Check size={12}/> : null}{copied ? 'Copied' : 'Copy reply'}</button>}</div><p>{m.content}</p>{m.role === 'assistant' && <SearchCards sources={m.sources} places={m.places}/>}</div></article>)}{loading && <article className="message assistant"><div className="message-avatar assistant">p</div><div className="message-content"><div className="message-label">Peppy</div><div className="typing"><i/><i/><i/></div></div></article>}<div ref={tail}/></div>}
       </section>
 
       <div ref={setNotificationTarget} className="chat-notifications" aria-label="Local chat notifications"/>

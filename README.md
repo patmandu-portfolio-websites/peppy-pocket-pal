@@ -11,6 +11,8 @@ A cheerful, responsive chat companion built as a Progressive Web App (PWA).
 
 The API key is read by the server and is never sent to the browser. API usage may incur charges on the OpenAI account associated with the key. Change `OPENAI_MODEL` in `.env` if you want a different model available to your account.
 
+Normal chat can use OpenAI web search to answer current questions and show cited source links; those questions are sent to OpenAI for search. Search requests may incur OpenAI charges. For structured business hours and an optional establishment photo preview, configure `GOOGLE_MAPS_API_KEY` in `.env` and in Render's environment variables; opening-hours queries are also sent to Google Places, and Places API (New) and billing must be enabled for that Google Cloud project. Without it, Peppy can still search the web, but business hours may be less precise and photo cards are unavailable. Live Google Places details and replies that use them are temporary and are omitted from saved chat history. Do not put either key in browser code.
+
 ## What it includes
 
 - Mobile-friendly installable PWA shell with offline app-shell caching.
@@ -19,6 +21,7 @@ The API key is read by the server and is never sent to the browser. API usage ma
 - Notes are included in the conversation request to personalize answers. Clearing browser site data removes local history and notes.
 - Default boundaries for high-stakes advice, crisis support, spirituality, and avoiding harmful assistance.
 - Browser-based microphone dictation and optional OpenAI-generated spoken replies.
+- Normal chat can search the web and show cited links; optional Google Places lookup adds business hours, website/Maps links and an attributed photo preview when available.
 - Chat messages and the message composer use 16px text on desktop and phone layouts across Windows, Ubuntu and hosted installations.
 - The reply box shows three lines by default and scrolls internally to the latest text as you type, paste or dictate, without moving keyboard focus or changing your text selection. Longer drafts remain scrollable for review; Enter sends and Shift+Enter adds a line.
 - On phone layouts, the reply box follows the last chat message without reserving an empty viewport-height conversation area. Voice controls and companion panels remain below it.
