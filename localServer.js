@@ -17,6 +17,7 @@ import { installLocalGmail } from './gmailLocal.js';
 import { installResearch } from './researchLocal.js';
 import { chatInput } from './chatInput.js';
 import { createWebChat, installPlacePhotoRoute } from './webSearch.js';
+import { installAppleMusic } from './appleMusicServer.js';
 
 const linuxVm = process.platform === 'linux' && process.env.PEPPY_VM === '1';
 if ((!linuxVm && process.platform !== 'win32') || process.env.RENDER || process.env.NODE_ENV === 'production') throw new Error('Local assistant requires Windows or explicitly enabled Linux VM mode (PEPPY_VM=1); it cannot run on Render or in production mode.');
@@ -104,6 +105,7 @@ app.use((req, res, next) => {
 app.use(['/api/chat', '/api/local/chat'], express.json({ limit: '6mb' }));
 app.use('/api/local/pdf/propose', express.json({ limit: '1mb' }));
 app.use(express.json({ limit: '128kb' }));
+installAppleMusic(app);
 installPlacePhotoRoute(app, () => process.env.GOOGLE_MAPS_API_KEY);
 const gmail = await installLocalGmail(app, stateDir);
 await installResearch(app, stateDir, createClient);

@@ -9,6 +9,8 @@ import { LearningPanel } from './LearningPanel.jsx';
 import { emptyLearning, learningKey, learningContext } from './learning.js';
 import { readChatImage } from './chatImage.js';
 import { chatLinks } from './chatLinks.js';
+import { parseMusicCommand } from './appleMusic.js';
+import AppleMusicPanel, { useAppleMusic } from './AppleMusicPanel.jsx';
 const HostedPdfPanel = lazy(() => import('./HostedPdfPanel.jsx'));
 const GmailPanel = lazy(() => import('./GmailPanel.jsx'));
 const ResearchPanel = lazy(() => import('./ResearchPanel.jsx'));
@@ -98,6 +100,7 @@ function App() {
   const chatShown = useRef(false);
   const input = useRef(null);
   const conversation = useRef(0);
+  const music = useAppleMusic();
   const voice = useVoiceChat({ enabled: spokenReplies, selectedVoice, voiceSendEnabled, onTranscript: setDraft, onVoiceSend: send });
   const lastReply = [...messages].reverse().find(m => m.role === 'assistant');
   useEffect(() => {
@@ -140,11 +143,18 @@ function App() {
     voice.stopAll();
     const currentConversation = conversation.current;
     const attachedImage = image;
-    const next = [...messages, { role: 'user', content: content || 'Please describe or transcribe this image.', ...(attachedImage ? { imageAttached: true } : {}) }];
-    const requestMessages = next.slice(-16).map((message, index, recent) =>
+    const musicCommand = !attachedImage && parseMusicCommand(content);
+    const next = [...messages, { role: 'user', content: content || 'Please describe or transcribe this image.',
+      ...(attachedImage ? { imageAttached: true } : {}), ...(musicCommand ? { musicOnly: true } : {}) }];
+    const requestMessages = next.filter(message => !message.musicOnly).slice(-16).map((message, index, recent) =>
       attachedImage && index === recent.length - 1 ? { ...message, image: attachedImage.data } : message);
     setMessages(next); setDraft(''); setImage(null); setImageError(''); setLoading(true);
     try {
+      if (musicCommand) {
+        const reply = await music.command(musicCommand);
+        if (currentConversation === conversation.current) setMessages([...next, { role: 'assistant', content: reply, musicOnly: true }]);
+        return;
+      }
       const response = await fetch(localEnabled ? '/api/local/chat' : '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: requestMessages, memory: [name && `The user's name is ${name}.`, memory.slice(0, 1600), learningContext(learning)].filter(Boolean).join('\n') }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Something went wrong.');
@@ -152,7 +162,7 @@ function App() {
       if (localEnabled) setLocalTask(data);
       setMessages([...next, { role: 'assistant', content: data.reply, sources: data.sources, places: data.places }]);
       voice.speak(data.reply, true);
-    } catch (err) { if (currentConversation === conversation.current) { setMessages([...next, { role: 'assistant', content: `Oh! ${err.message}` }]); if (attachedImage) { setImage(attachedImage); setDraft(content); setImageError('Request failed. The image is restored for review; sending again may incur another charge.'); } } }
+    } catch (err) { if (currentConversation === conversation.current) { setMessages([...next, { role: 'assistant', content: `Oh! ${err.message}`, ...(musicCommand ? { musicOnly: true } : {}) }]); if (attachedImage) { setImage(attachedImage); setDraft(content); setImageError('Request failed. The image is restored for review; sending again may incur another charge.'); } } }
     finally { if (currentConversation === conversation.current) { setLoading(false); input.current?.focus(); } }
   }
 
@@ -276,6 +286,7 @@ function App() {
           {status.authenticationRequired && status.signedIn && <Suspense fallback={<p>Loading document controls...</p>}><HostedPdfPanel/></Suspense>}
           <details className="feature-panel"><summary>Learning, knowledge and improvement suggestions</summary><div className="feature-panel-body">{learningError ? <p role="alert">{learningError}</p> : <LearningPanel state={learning} save={saveLearning}/>}</div></details>
           {status?.localAssistant && <LocalAssistantPanel enabled={localEnabled} onToggle={value => { voice.stopAll(); setLocalEnabled(value); setLocalTask(null); }} task={localTask} busy={loading} onApproval={localAction} onContinue={() => localAction()}/>}
+          <AppleMusicPanel music={music} stopVoice={voice.stopAll}/>
         </div>
       </footer>
     </main>

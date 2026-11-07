@@ -12,6 +12,7 @@ import { Storage } from '@google-cloud/storage';
 import { CloudPdfStore, pdfService, installPdfRoutes, installPdfCleanup } from './hostedPdf.js';
 import { chatInput } from './chatInput.js';
 import { createWebChat, installPlacePhotoRoute } from './webSearch.js';
+import { installAppleMusic } from './appleMusicServer.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -42,6 +43,7 @@ if (hosted) {
 }
 
 app.get('/api/status', (req, res) => res.json({ configured: Boolean(process.env.OPENAI_API_KEY), authenticationRequired: Boolean(hosted), signedIn: req.hostedSignedIn === true }));
+installAppleMusic(app);
 installPlacePhotoRoute(app, () => process.env.GOOGLE_MAPS_API_KEY);
 app.post('/api/speech', createSpeechHandler(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })));
 app.post('/api/learning/propose', learningHandler(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })));
