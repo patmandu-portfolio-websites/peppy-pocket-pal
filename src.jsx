@@ -8,10 +8,16 @@ import './style.css';
 import { LearningPanel } from './LearningPanel.jsx';
 import { emptyLearning, learningKey, learningContext } from './learning.js';
 import { readChatImage } from './chatImage.js';
+import { chatLinks } from './chatLinks.js';
 const HostedPdfPanel = lazy(() => import('./HostedPdfPanel.jsx'));
 const GmailPanel = lazy(() => import('./GmailPanel.jsx'));
 const ResearchPanel = lazy(() => import('./ResearchPanel.jsx'));
 const ImageEditor = lazy(() => import('./ImageEditor.jsx'));
+
+function ChatText({ text }) {
+  return <p>{chatLinks(text).map((part, index) => part.url ?
+    <a key={index} href={part.url} target="_blank" rel="noopener noreferrer">{part.text}</a> : part.text)}</p>;
+}
 
 function SearchCards({ sources = [], places = [] }) {
   if (!sources.length && !places.length) return null;
@@ -206,7 +212,7 @@ function App() {
           <p className="welcome-copy">I’m Peppy — here for the big thoughts, tiny wins,<br className="wide-only"/> weird questions, and everything in between.</p>
           <div className="topic-grid">{topics.map(t => <button className="topic-card" key={t.label} onClick={() => send(t.prompt)}><span className="topic-emoji">{t.icon}</span><span>{t.label}</span><ArrowUp className="topic-arrow" size={14}/></button>)}</div>
           <button className="memory-nudge" onClick={() => setPanel('memory')}><span className="nudge-icon"><Heart size={15}/></span><span><b>Make this feel more like us</b><small>Add a few things for me to remember about you</small></span><ChevronRight size={17}/></button>
-        </div> : <div className="message-list">{messages.map((m, i) => <article className={`message ${m.role}`} key={i}><div className={`message-avatar ${m.role}`}>{m.role === 'assistant' ? 'p' : (name ? name[0].toUpperCase() : '✿')}</div><div className="message-content"><div className="message-label">{m.role === 'assistant' ? 'Peppy' : name || 'You'}{m.role === 'assistant' && i === messages.length - 1 && <button className="copy-button" onClick={copyLast}>{copied ? <Check size={12}/> : null}{copied ? 'Copied' : 'Copy reply'}</button>}</div><p>{m.content}</p>{m.role === 'assistant' && <SearchCards sources={m.sources} places={m.places}/>}</div></article>)}{loading && <article className="message assistant"><div className="message-avatar assistant">p</div><div className="message-content"><div className="message-label">Peppy</div><div className="typing"><i/><i/><i/></div></div></article>}<div ref={tail}/></div>}
+        </div> : <div className="message-list">{messages.map((m, i) => <article className={`message ${m.role}`} key={i}><div className={`message-avatar ${m.role}`}>{m.role === 'assistant' ? 'p' : (name ? name[0].toUpperCase() : '✿')}</div><div className="message-content"><div className="message-label">{m.role === 'assistant' ? 'Peppy' : name || 'You'}{m.role === 'assistant' && i === messages.length - 1 && <button className="copy-button" onClick={copyLast}>{copied ? <Check size={12}/> : null}{copied ? 'Copied' : 'Copy reply'}</button>}</div><ChatText text={m.content}/>{m.role === 'assistant' && <SearchCards sources={m.sources} places={m.places}/>}</div></article>)}{loading && <article className="message assistant"><div className="message-avatar assistant">p</div><div className="message-content"><div className="message-label">Peppy</div><div className="typing"><i/><i/><i/></div></div></article>}<div ref={tail}/></div>}
       </section>
 
       <div ref={setNotificationTarget} className="chat-notifications" aria-label="Local chat notifications"/>

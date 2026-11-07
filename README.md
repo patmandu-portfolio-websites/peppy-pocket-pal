@@ -22,6 +22,7 @@ Normal chat can use OpenAI web search to answer current questions and show cited
 - Default boundaries for high-stakes advice, crisis support, spirituality, and avoiding harmful assistance.
 - Browser-based microphone dictation and optional OpenAI-generated spoken replies.
 - Normal chat can search the web and show cited links; optional Google Places lookup adds business hours, website/Maps links and an attributed photo preview when available.
+- Website links in user and Peppy messages are clickable, including HTTP/HTTPS URLs, `www.` addresses and Markdown-style links. They open in a new tab only when clicked; saved messages use the same rendering. Message text remains unchanged for copying and speech, and unsafe link schemes are not activated.
 - Chat messages and the message composer use 16px text on desktop and phone layouts across Windows, Ubuntu and hosted installations.
 - The reply box shows three lines by default and scrolls internally to the latest text as you type, paste or dictate, without moving keyboard focus or changing your text selection. Longer drafts remain scrollable for review; Enter sends and Shift+Enter adds a line.
 - On phone layouts, the reply box follows the last chat message without reserving an empty viewport-height conversation area. Voice controls and companion panels remain below it.
