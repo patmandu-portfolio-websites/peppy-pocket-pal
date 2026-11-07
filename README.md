@@ -7,7 +7,9 @@ A cheerful, responsive chat companion built as a Progressive Web App (PWA).
 1. Install Node.js 20 or newer.
 2. In this folder, run `npm install`.
 3. Copy `.env.example` to `.env` and add your OpenAI API key.
-4. Run `npm run dev` and open the local URL printed by Vite (normally `http://localhost:5173`).
+4. Run `npm run dev` and open **http://127.0.0.1:5174/**.
+
+Peppy's development UI uses port **5174** so another app (such as Orbit) can keep port 5173. Vite stops with an explicit error if 5174 is already occupied instead of silently choosing another port. The API runs on port 3000; that port is not the development homepage. If Peppy was already running before this configuration change, stop its own `npm run dev` terminal with Ctrl+C and restart it. Do not stop another project's server. These development settings do not change Render or the local companion at `http://127.0.0.1:3030`.
 
 The API key is read by the server and is never sent to the browser. API usage may incur charges on the OpenAI account associated with the key. Change `OPENAI_MODEL` in `.env` if you want a different model available to your account.
 
@@ -92,7 +94,19 @@ Peppy can propose **request_website_access** when a task needs another site. App
 
 Keep ordinary conversation/voice by leaving the Local assistant toggle off. Local mode's API key and selected excerpts still go to OpenAI over its API; local execution does **not** mean offline AI.
 
-### Amazon Australia cart-only workflow
+### Amazon Australia search links (Windows, Ubuntu and Render)
+
+The shared UI includes **Amazon Australia - search links** in regular development mode, the local companion and Render (desktop/phone). Enter a product query and click **Prepare Amazon search link**, then **Open search on Amazon Australia**. Or type **Peppy, find wireless headphones on Amazon** / **Peppy, search Amazon for wireless headphones** in chat; microphone dictation and Send use the same command path.
+
+This prepares an Amazon Australia search URL, not product listings or verified prices/availability. No API key or Amazon sign-in to Peppy is required. Preparing a link makes no Amazon or OpenAI request; opening it sends the query to Amazon in a new tab. These recognised chat commands/replies are excluded from subsequent AI chat requests, including after history reload. Sign-in, selecting products, adding to cart and purchasing remain manual on Amazon. Never put credentials or payment details in chat.
+
+Run `npm run dev` and open the Vite UI at `http://127.0.0.1:5174`, or `npm run build` followed by `npm run local` and open `http://127.0.0.1:3030`. Deploy the updated build to Render for the same search-link feature. Ubuntu shares the UI but has not yet been live-confirmed.
+
+Live acceptance (8 November 2026): the user confirmed the Windows local Amazon.com.au product-search workflow works as expected and reported seeing product images. The image display location was not specified; this does not establish an in-Peppy product-image integration. Render/phone Amazon acceptance and automated cart changes remain unconfirmed.
+
+### Amazon Australia cart-only workflow (local companion only)
+
+The older restricted browser adapter below is separate from the shared search-link feature; it is not enabled on Render.
 
 **Current status: experimental.** The corrected sign-in form loads, but manual sign-in did not complete successfully during live validation. The real Amazon cart mutation has not been tested. The live test was paused and its temporary browser closed without adding an item or submitting a purchase. Do not assume fixture-test success means your account/login flow is compatible; do not relax checkout protections to work around it.
 
@@ -251,7 +265,11 @@ Search sends only the query and selected country through Peppy's existing authen
 
 The earlier MusicKit player, token endpoints, developer-key settings and expanded local content policy have been removed. Existing local file/website permissions and the encrypted Windows OpenAI-key setup are unchanged. Build/deploy and restart each installation to receive this feature.
 
-User-confirmed local validation (2026-11-08, New Zealand time): searching for an artist displayed ten results successfully. Opening a result in Apple Music, manual playback, microphone commands and operation on Render/Ubuntu were not separately confirmed by this test.
+User-confirmed local validation (2026-11-08, New Zealand time): searching for an artist displayed ten results successfully. The user also confirmed that opening a song link and playing the song manually worked as expected.
+
+User-confirmed Render validation (2026-11-08, New Zealand time): after deployment, Peppy displayed ten song links; clicking a link opened the song in Apple Music, and manual playback worked.
+
+User-confirmed phone voice validation (2026-11-08, New Zealand time): a voice command in chat displayed a link that opened Apple Music on the phone, where the artist's top songs were displayed; selecting a song played it. This confirms the observed voice-to-link and manual playback flow, not playback control inside Peppy. Operation on Ubuntu remains unconfirmed.
 
 ### Gmail desktop monitoring (implemented; live desktop tests confirmed)
 

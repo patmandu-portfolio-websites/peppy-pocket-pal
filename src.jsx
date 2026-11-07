@@ -11,6 +11,8 @@ import { readChatImage } from './chatImage.js';
 import { chatLinks } from './chatLinks.js';
 import { parseMusicCommand } from './appleMusic.js';
 import AppleMusicPanel, { useAppleMusic } from './AppleMusicPanel.jsx';
+import { amazonSearchLink, parseAmazonCommand } from './amazonLinks.js';
+import AmazonLinksPanel from './AmazonLinksPanel.jsx';
 const HostedPdfPanel = lazy(() => import('./HostedPdfPanel.jsx'));
 const GmailPanel = lazy(() => import('./GmailPanel.jsx'));
 const ResearchPanel = lazy(() => import('./ResearchPanel.jsx'));
@@ -143,13 +145,20 @@ function App() {
     voice.stopAll();
     const currentConversation = conversation.current;
     const attachedImage = image;
-    const musicCommand = !attachedImage && parseMusicCommand(content);
+    const amazonCommand = !attachedImage && parseAmazonCommand(content);
+    const musicCommand = !attachedImage && !amazonCommand && parseMusicCommand(content);
     const next = [...messages, { role: 'user', content: content || 'Please describe or transcribe this image.',
-      ...(attachedImage ? { imageAttached: true } : {}), ...(musicCommand ? { musicOnly: true } : {}) }];
-    const requestMessages = next.filter(message => !message.musicOnly).slice(-16).map((message, index, recent) =>
+      ...(attachedImage ? { imageAttached: true } : {}), ...(musicCommand ? { musicOnly: true } : {}), ...(amazonCommand ? { amazonOnly: true } : {}) }];
+    const requestMessages = next.filter(message => !message.musicOnly && !message.amazonOnly).slice(-16).map((message, index, recent) =>
       attachedImage && index === recent.length - 1 ? { ...message, image: attachedImage.data } : message);
     setMessages(next); setDraft(''); setImage(null); setImageError(''); setLoading(true);
     try {
+      if (amazonCommand) {
+        const url = amazonSearchLink(amazonCommand.query);
+        const reply = `Open this Amazon Australia search link to browse products:\n${url}\nSign in, review prices and availability, and shop manually on Amazon. Peppy has not opened Amazon or changed your cart.`;
+        if (currentConversation === conversation.current) setMessages([...next, { role: 'assistant', content: reply, amazonOnly: true }]);
+        return;
+      }
       if (musicCommand) {
         const reply = await music.command(musicCommand);
         if (currentConversation === conversation.current) setMessages([...next, { role: 'assistant', content: reply, musicOnly: true }]);
@@ -162,7 +171,7 @@ function App() {
       if (localEnabled) setLocalTask(data);
       setMessages([...next, { role: 'assistant', content: data.reply, sources: data.sources, places: data.places }]);
       voice.speak(data.reply, true);
-    } catch (err) { if (currentConversation === conversation.current) { setMessages([...next, { role: 'assistant', content: `Oh! ${err.message}`, ...(musicCommand ? { musicOnly: true } : {}) }]); if (attachedImage) { setImage(attachedImage); setDraft(content); setImageError('Request failed. The image is restored for review; sending again may incur another charge.'); } } }
+    } catch (err) { if (currentConversation === conversation.current) { setMessages([...next, { role: 'assistant', content: `Oh! ${err.message}`, ...(musicCommand ? { musicOnly: true } : {}), ...(amazonCommand ? { amazonOnly: true } : {}) }]); if (attachedImage) { setImage(attachedImage); setDraft(content); setImageError('Request failed. The image is restored for review; sending again may incur another charge.'); } } }
     finally { if (currentConversation === conversation.current) { setLoading(false); input.current?.focus(); } }
   }
 
@@ -287,6 +296,7 @@ function App() {
           <details className="feature-panel"><summary>Learning, knowledge and improvement suggestions</summary><div className="feature-panel-body">{learningError ? <p role="alert">{learningError}</p> : <LearningPanel state={learning} save={saveLearning}/>}</div></details>
           {status?.localAssistant && <LocalAssistantPanel enabled={localEnabled} onToggle={value => { voice.stopAll(); setLocalEnabled(value); setLocalTask(null); }} task={localTask} busy={loading} onApproval={localAction} onContinue={() => localAction()}/>}
           <AppleMusicPanel music={music} stopVoice={voice.stopAll}/>
+          <AmazonLinksPanel stopVoice={voice.stopAll}/>
         </div>
       </footer>
     </main>
