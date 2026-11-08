@@ -15,6 +15,7 @@ import { createWebChat, installPlacePhotoRoute } from './webSearch.js';
 import { installAppleMusic } from './appleMusicServer.js';
 import { songWorkshopHandler } from './songWorkshop.js';
 import { installSuno, installSunoCallback } from './sunoApi.js';
+import { videoWorkshopHandler } from './videoWorkshop.js';
 
 const app = express();
 installSunoCallback(app);
@@ -49,6 +50,7 @@ app.get('/api/status', (req, res) => res.json({ configured: Boolean(process.env.
 installAppleMusic(app);
 installSuno(app);
 app.post('/api/music/draft', songWorkshopHandler(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })));
+app.post('/api/video/draft', videoWorkshopHandler(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })));
 installPlacePhotoRoute(app, () => process.env.GOOGLE_MAPS_API_KEY);
 app.post('/api/speech', createSpeechHandler(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })));
 app.post('/api/learning/propose', learningHandler(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })));

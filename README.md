@@ -49,6 +49,20 @@ Task progress is polled every 10 seconds, stopping on completion/failure, a look
 
 Approvals use a request identifier with server-side duplicate suppression; repeated submissions with that identifier do not create another song. Unknown submission outcomes are not retried automatically and are explicitly reported because credits may already have been used. Check the provider dashboard before creating another draft/approval after an uncertain result. Task/approval records are in memory for up to 24 hours (100 submissions per process); reloading loses the workshop reference, and server restarts/multiple instances do not share these records. Use the provider dashboard if a reference is lost; do not infer a failed generation or refund from missing local state. Integration tests use mocked provider responses; no live paid generation is performed by tests.
 
+Live acceptance (8 November 2026): the user confirmed that both versions of Peppy's song creation work as expected. The confirmation did not separately identify platforms or individual workflow steps; it does not establish per-platform phone/Ubuntu acceptance or verified pricing.
+
+## Video workshop (manual Pika/Runway handoff)
+
+Open **Video workshop - storyboard and prompt**, enter an original video idea and visual style, and choose a planned duration (5 or 10 seconds) and aspect ratio (16:9, 9:16 or 1:1). **Draft video plan** produces an editable title, timed storyboard and self-contained prompt using the existing OpenAI credentials/model. This incurs OpenAI charges; only the idea/settings are sent, not chat history or memories. The route uses existing hosted/local access controls. No video API key or new dependencies are needed.
+
+Chat and microphone dictation also work: **Peppy, create a video about a sunrise over the ocean** (then Send). This opens the workshop and drafts text only, using its selected settings. Recognised video commands/replies are omitted from later AI chat requests, including after history reload. Chat draft text is saved with chat history; editable workshop state is temporary and not restored after reloading.
+
+Review/edit the result, use **Copy storyboard** / **Copy video prompt**, then **Open Pika** or **Open Runway**. Sign in and paste into the provider yourself, checking any generation charges and terms first. Peppy makes no request to these services before you click a link, includes no draft text in the links, and does not access accounts, upload images, generate video files or start playback. Some models require an image or support different durations/ratios; adjust the plan to the provider's current capabilities. Copy anything you want to keep before reloading; failed planning keeps the previous draft, while a successful new plan replaces it. Clipboard failures are reported with a manual-copy alternative.
+
+Free-tier information checked on 8 November 2026: [Pika pricing](https://pika.art/pricing) advertises a $0 plan but does not establish a guaranteed free-generation allowance here; [Runway pricing](https://runwayml.com/pricing) advertises 125 **one-time**, not recurring, free credits. Availability, model access, downloads, watermarks and licensing can change. Free website plans do not mean free Peppy/OpenAI drafting or free API access. This feature is a manual handoff, not a paid video-API integration.
+
+The shared UI works in Windows development mode, the local companion and Render desktop/phone (Ubuntu uses the same UI). Restart the Peppy server for `/api/video/draft`, rebuild local companion assets, and deploy the updated Render build. Automated provider/UI tests are mocked; actual Pika/Runway generation still needs user acceptance.
+
 ## What it includes
 
 - Mobile-friendly installable PWA shell with offline app-shell caching.

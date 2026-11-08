@@ -16,6 +16,8 @@ import AmazonLinksPanel from './AmazonLinksPanel.jsx';
 import PeppyFace, { useIdleExpression } from './PeppyFace.jsx';
 import { replyExpression } from './peppyExpression.js';
 import SongWorkshopPanel from './SongWorkshopPanel.jsx';
+import VideoWorkshopPanel from './VideoWorkshopPanel.jsx';
+import { parseVideoCommand } from './videoWorkshop.js';
 const HostedPdfPanel = lazy(() => import('./HostedPdfPanel.jsx'));
 const GmailPanel = lazy(() => import('./GmailPanel.jsx'));
 const ResearchPanel = lazy(() => import('./ResearchPanel.jsx'));
@@ -80,6 +82,7 @@ function App() {
   const imageVersion = useRef(0);
   const [loading, setLoading] = useState(false);
   const [songBusy, setSongBusy] = useState(false);
+  const [videoBusy, setVideoBusy] = useState(false);
   const [status, setStatus] = useState(null);
   const [panel, setPanel] = useState('');
   const [menu, setMenu] = useState(false);
@@ -109,8 +112,9 @@ function App() {
   const conversation = useRef(0);
   const music = useAppleMusic();
   const songWorkshop = useRef(null);
+  const videoWorkshop = useRef(null);
   const voice = useVoiceChat({ enabled: spokenReplies, selectedVoice, voiceSendEnabled, onTranscript: setDraft, onVoiceSend: send });
-  const faceState = voice.listening ? 'listening' : voice.speaking ? 'speaking' : loading || songBusy || voice.preparing || imageBusy ? 'thinking' : 'idle';
+  const faceState = voice.listening ? 'listening' : voice.speaking ? 'speaking' : loading || songBusy || videoBusy || voice.preparing || imageBusy ? 'thinking' : 'idle';
   const lastReply = [...messages].reverse().find(m => m.role === 'assistant');
   const idleExpression = useIdleExpression(faceAnimated && faceState === 'idle' && !draft.trim() && !image &&
     !localTask?.pending && !localTask?.canContinue && Boolean(status && !status.unavailable && (!status.authenticationRequired || status.signedIn)), messages);
@@ -157,15 +161,22 @@ function App() {
     voice.stopAll();
     const currentConversation = conversation.current;
     const attachedImage = image;
+    const videoCommand = !attachedImage && parseVideoCommand(content);
     const songCommand = !attachedImage && /^peppy[\s,]+(?:write|create|make|draft)\s+(?:me\s+)?(?:a\s+)?song\s+about\s+(.+)$/i.exec(content);
-    const amazonCommand = !attachedImage && !songCommand && parseAmazonCommand(content);
-    const musicCommand = !attachedImage && !songCommand && !amazonCommand && parseMusicCommand(content);
+    const amazonCommand = !attachedImage && !songCommand && !videoCommand && parseAmazonCommand(content);
+    const musicCommand = !attachedImage && !songCommand && !videoCommand && !amazonCommand && parseMusicCommand(content);
     const next = [...messages, { role: 'user', content: content || 'Please describe or transcribe this image.',
-      ...(attachedImage ? { imageAttached: true } : {}), ...(musicCommand ? { musicOnly: true } : {}), ...(amazonCommand ? { amazonOnly: true } : {}), ...(songCommand ? { songOnly: true } : {}) }];
-    const requestMessages = next.filter(message => !message.musicOnly && !message.amazonOnly && !message.songOnly).slice(-16).map((message, index, recent) =>
+      ...(attachedImage ? { imageAttached: true } : {}), ...(musicCommand ? { musicOnly: true } : {}), ...(amazonCommand ? { amazonOnly: true } : {}), ...(songCommand ? { songOnly: true } : {}), ...(videoCommand ? { videoOnly: true } : {}) }];
+    const requestMessages = next.filter(message => !message.musicOnly && !message.amazonOnly && !message.songOnly && !message.videoOnly).slice(-16).map((message, index, recent) =>
       attachedImage && index === recent.length - 1 ? { ...message, image: attachedImage.data } : message);
     setMessages(next); setDraft(''); setImage(null); setImageError(''); setLoading(true);
     try {
+      if (videoCommand) {
+        const result = await videoWorkshop.current.draftFromChat(videoCommand.brief);
+        if (currentConversation === conversation.current) setMessages([...next, { role: 'assistant',
+          content: `${result.title}\n\nStoryboard:\n${result.storyboard}\n\nVideo prompt:\n${result.prompt}\n\nReview and copy this plan in the Video workshop below, then open Pika or Runway to generate manually. No video has been generated or sent to either service.`, videoOnly: true }]);
+        return;
+      }
       if (songCommand) {
         const result = await songWorkshop.current.draftFromChat(songCommand[1].trim());
         if (currentConversation === conversation.current) setMessages([...next, { role: 'assistant',
@@ -190,7 +201,7 @@ function App() {
       if (localEnabled) setLocalTask(data);
       setMessages([...next, { role: 'assistant', content: data.reply, sources: data.sources, places: data.places }]);
       voice.speak(data.reply, true);
-    } catch (err) { if (currentConversation === conversation.current) { setMessages([...next, { role: 'assistant', content: `Oh! ${err.message}`, ...(musicCommand ? { musicOnly: true } : {}), ...(amazonCommand ? { amazonOnly: true } : {}), ...(songCommand ? { songOnly: true } : {}) }]); if (attachedImage) { setImage(attachedImage); setDraft(content); setImageError('Request failed. The image is restored for review; sending again may incur another charge.'); } } }
+    } catch (err) { if (currentConversation === conversation.current) { setMessages([...next, { role: 'assistant', content: `Oh! ${err.message}`, ...(musicCommand ? { musicOnly: true } : {}), ...(amazonCommand ? { amazonOnly: true } : {}), ...(songCommand ? { songOnly: true } : {}), ...(videoCommand ? { videoOnly: true } : {}) }]); if (attachedImage) { setImage(attachedImage); setDraft(content); setImageError('Request failed. The image is restored for review; sending again may incur another charge.'); } } }
     finally { if (currentConversation === conversation.current) { setLoading(false); input.current?.focus(); } }
   }
 
@@ -312,7 +323,7 @@ function App() {
         <p className="voice-help">Your browser may send microphone audio to its speech service. Voice availability varies by phone and browser.</p>
         <p className="fineprint">Peppy is AI and can get things wrong. For important decisions, check with a pro.</p>
         <div className="companion-panels">
-          {status?.downtimeResearch && !learningError && <Suspense fallback={<p>Loading research controls...</p>}><ResearchPanel notificationTarget={notificationTarget} learning={learning} saveLearning={saveLearning} chatBusy={loading || imageBusy || Boolean(image) || Boolean(draft.trim()) || voice.listening || voice.preparing || voice.speaking || Boolean(localTask?.pending || localTask?.canContinue)} spokenReplies={spokenReplies} speakInvitation={text => voice.speak(text, true)} prepareConversation={text => { setDraft(text); input.current?.focus(); }}/></Suspense>}
+          {status?.downtimeResearch && !learningError && <Suspense fallback={<p>Loading research controls...</p>}><ResearchPanel notificationTarget={notificationTarget} learning={learning} saveLearning={saveLearning} chatBusy={loading || videoBusy || imageBusy || Boolean(image) || Boolean(draft.trim()) || voice.listening || voice.preparing || voice.speaking || Boolean(localTask?.pending || localTask?.canContinue)} spokenReplies={spokenReplies} speakInvitation={text => voice.speak(text, true)} prepareConversation={text => { setDraft(text); input.current?.focus(); }}/></Suspense>}
           {status?.localAssistant && <Suspense fallback={<p>Loading Gmail controls...</p>}><GmailPanel notificationTarget={notificationTarget}/></Suspense>}
           {status.authenticationRequired && status.signedIn && <Suspense fallback={<p>Loading document controls...</p>}><HostedPdfPanel/></Suspense>}
           <details className="feature-panel"><summary>Learning, knowledge and improvement suggestions</summary><div className="feature-panel-body">{learningError ? <p role="alert">{learningError}</p> : <LearningPanel state={learning} save={saveLearning}/>}</div></details>
@@ -320,6 +331,7 @@ function App() {
           <AppleMusicPanel music={music} stopVoice={voice.stopAll}/>
           <AmazonLinksPanel stopVoice={voice.stopAll}/>
           <SongWorkshopPanel ref={songWorkshop} stopVoice={voice.stopAll} onBusyChange={setSongBusy}/>
+          <VideoWorkshopPanel ref={videoWorkshop} stopVoice={voice.stopAll} onBusyChange={setVideoBusy}/>
         </div>
       </footer>
     </main>
