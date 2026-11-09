@@ -314,6 +314,13 @@ test('built hosted PDF UI uploads, previews, fills and deletes using explicit bu
   const filledJob = (await service.list('owner'))[0];
   const filledDocument = await PDFDocument.load(await service.bytes('owner', filledJob.id, 'output'));
   assert.equal(filledDocument.getForm().getTextField('Name').getText(), 'Hosted answer');
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector('canvas');
+    if (!canvas) return false;
+    const pixel = canvas.getContext('2d').getImageData(
+      Math.floor(canvas.width * 0.6), Math.floor(canvas.height * 0.55), 1, 1).data;
+    return pixel[0] === 0 && pixel[1] === 128 && pixel[2] === 0 && pixel[3] === 255;
+  });
   const stampPixel = await page.locator('canvas').evaluate(canvas => [...canvas.getContext('2d').getImageData(
     Math.floor(canvas.width * 0.6), Math.floor(canvas.height * 0.55), 1, 1).data]);
   assert.deepEqual(stampPixel, [0, 128, 0, 255]);

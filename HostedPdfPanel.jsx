@@ -63,7 +63,7 @@ export default function HostedPdfPanel() {
       {overlayMode && !output ?
         <PdfOverlayEditor id={`${job.id}-input`} url={`/api/pdf/${job.id}/input`} overlays={overlays} onChange={setOverlays} disabled={busy || Boolean(proposal)}/> :
         <PdfPreview id={`${job.id}-${output}`} url={`/api/pdf/${job.id}/${output ? 'output' : 'input'}`}/>}
-      <p>The placement editor also supports image stamps on fillable PDFs. Field values and overlays can be combined; use {'{}'} when there are no fillable fields.</p>
+      <p>The placement editor also supports transparent signature photos and ordinary image stamps on fillable PDFs. These are visual marks, not cryptographic digital signatures; signature-bearing PDFs remain unsupported. Field values and overlays can be combined; use {'{}'} when there are no fillable fields.</p>
       <label>Exact PDF field values as JSON<textarea value={values} disabled={busy || output || Boolean(proposal)} onChange={event => setValues(event.target.value)}/></label>
       <button type="button" disabled={busy || output || Boolean(proposal) || (overlayMode && !overlays.length)} onClick={() => action(async () => {
         setProposal(await request(`/api/pdf/${job.id}/propose`, { method: 'POST', headers: { 'Content-Type': 'application/json' },

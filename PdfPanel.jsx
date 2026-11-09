@@ -3,6 +3,7 @@ import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { localRequest } from './LocalAssistantPanel.jsx';
 import ApprovalSection from './ApprovalSection.jsx';
+import SignatureImagePanel from './SignatureImagePanel.jsx';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -111,6 +112,8 @@ export function PdfOverlayEditor({ id, url, overlays, onChange, disabled }) {
         void selectImage(files[0]);
       }}/></label>
     <p>Image stamps work on fillable or non-fillable PDFs. Select/paste, then click the page; adjust width/height below. Up to 10 images / 512 KiB combined. Ordinary images only, not digital signatures.</p>
+    <SignatureImagePanel disabled={disabled || imageBusy} onUse={value => { imageSequence.current++; setStamp(value); setText(''); setImageError(''); }}/>
+    {stamp && <button type="button" disabled={disabled} onClick={() => setStamp(null)}>Discard selected image stamp</button>}
     {stamp && <p role="status">Ready to place image: {stamp.name}</p>}
     {imageBusy && <p role="status">Preparing PDF image...</p>}
     {imageError && <p role="alert">{imageError}</p>}
@@ -178,7 +181,7 @@ export function PdfPanel({ busy }) {
   return <details className="feature-panel pdf-panel">
     <summary>PDF inspection and form filling — experimental</summary>
     <div className="feature-panel-body">
-    <p>Fill standard PDF fields or manually overlay text on non-fillable forms: 10 MiB, 50 pages. No OCR, signatures or general text extraction. Inputs stay unchanged. These manual actions do not send PDF content to AI.</p>
+    <p>Fill standard PDF fields or manually overlay text/images on forms: 10 MiB, 50 pages. Signature photos can become transparent image stamps; no cryptographic signing, OCR or general text extraction. Inputs stay unchanged. These manual actions do not send PDF content to AI.</p>
     <label>Absolute input PDF path <input value={source} onChange={event => { setSource(event.target.value); setResult(null); setOverlays([]); setValues('{}'); }} disabled={disabled}/></label>
     <button type="button" disabled={disabled || !source} onClick={() => propose('inspect_pdf')}>Propose PDF inspection</button>
     <label>Absolute new output PDF path <input value={destination} onChange={event => setDestination(event.target.value)} disabled={disabled}/></label>

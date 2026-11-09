@@ -61,7 +61,17 @@ Review/edit the result, use **Copy storyboard** / **Copy video prompt**, then **
 
 Free-tier information checked on 8 November 2026: [Pika pricing](https://pika.art/pricing) advertises a $0 plan but does not establish a guaranteed free-generation allowance here; [Runway pricing](https://runwayml.com/pricing) advertises 125 **one-time**, not recurring, free credits. Availability, model access, downloads, watermarks and licensing can change. Free website plans do not mean free Peppy/OpenAI drafting or free API access. This feature is a manual handoff, not a paid video-API integration.
 
-The shared UI works in Windows development mode, the local companion and Render desktop/phone (Ubuntu uses the same UI). Restart the Peppy server for `/api/video/draft`, rebuild local companion assets, and deploy the updated Render build. Automated provider/UI tests are mocked; actual Pika/Runway generation still needs user acceptance.
+The shared UI works in Windows development mode, the local companion and Render desktop/phone (Ubuntu uses the same UI). Restart the Peppy server for `/api/video/draft`, rebuild local companion assets, and deploy the updated Render build. Automated provider/UI tests are mocked.
+
+Live acceptance (9 November 2026): the user confirmed the manual video-generation workflow works with Pika and Runway and successfully generated video from Peppy's prompts. This confirms the prompt handoff, not automatic video generation inside Peppy or guaranteed free-tier availability. The user did not separately identify the Peppy installation/device tested; per-platform acceptance remains unspecified.
+
+## Transparent signature photos for PDFs
+
+In the existing PDF placement editor (local Windows/Ubuntu or hosted Render), use **Signature photo - remove light background**. Photograph/scan your own dark-ink signature on plain light paper, crop out other writing, and select the PNG/JPEG (up to 4 MiB / 16 megapixels). Peppy processes it entirely in the browser, removes light pixels, crops empty margins and produces a transparent PNG. Adjust the 120-250 threshold and prepare again if needed: higher values preserve lighter strokes but can retain shadows; lower values remove more background. Review the checkerboard preview for missing ink before clicking **Use reviewed signature for placement**.
+
+Enable **Place text on a non-fillable PDF** to open this editor even on fillable forms. Click/tap the desired page position, adjust image size/position, then use the existing proposal and separate save approval. Actual form-field values can be combined with the signature image; use `{}` for flat forms. Originals remain unchanged. No scanner hardware integration or handwriting recognition is provided. Uneven shadows or colored backgrounds may require a better photo. This creates a visual signature image, not cryptographic signing, identity verification or a guarantee of legal acceptance. Existing signature-bearing PDFs remain rejected.
+
+The original photo is not uploaded; only the reviewed PNG becomes an image overlay in the existing local/hosted PDF approval/output workflow. It is not sent to OpenAI or saved as a reusable signature library. Discard the selected stamp when finished. Existing image limits (ten images / 512 KiB combined) and hosted retention/cleanup warnings still apply. Only use signatures you are authorized to apply.
 
 ## What it includes
 

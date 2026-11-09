@@ -282,6 +282,32 @@ test('built PDF controls render approved source and filled output without sendin
     context.fillStyle = 'red'; context.fillRect(0, 0, 20, 10);
     return canvas.toDataURL().split(',')[1];
   }), 'base64');
+  const signaturePng = Buffer.from(await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 100; canvas.height = 50;
+    const context = canvas.getContext('2d');
+    context.fillStyle = 'white'; context.fillRect(0, 0, 100, 50);
+    context.fillStyle = 'black'; context.fillRect(30, 20, 40, 5);
+    return canvas.toDataURL().split(',')[1];
+  }), 'base64');
+  await page.getByLabel('Signature photo', { exact: true }).setInputFiles({ name: 'signature.png', mimeType: 'image/png', buffer: signaturePng });
+  await page.getByRole('button', { name: 'Prepare transparent signature', exact: true }).click();
+  const signaturePreview = page.getByAltText('Transparent signature preview', { exact: true });
+  await signaturePreview.waitFor();
+  const signaturePixels = await signaturePreview.evaluate(async image => {
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+    const context = canvas.getContext('2d');
+    context.drawImage(image, 0, 0);
+    return { width: canvas.width, height: canvas.height,
+      background: context.getImageData(0, 0, 1, 1).data[3],
+      ink: context.getImageData(10, 5, 1, 1).data[3] };
+  });
+  assert.deepEqual(signaturePixels, { width: 48, height: 13, background: 0, ink: 255 });
+  await page.getByRole('button', { name: 'Use reviewed signature for placement', exact: true }).click();
+  await page.getByRole('status').filter({ hasText: 'Ready to place image: Transparent signature' }).waitFor();
+  await page.getByRole('button', { name: 'Discard selected image stamp', exact: true }).click();
   for (const width of [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     assert.equal(await page.locator('.composer textarea').evaluate(element => getComputedStyle(element).fontSize), '16px');
