@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronRight, Heart, Menu, MessageCircle, Mic, Plus, Settings2, Sparkles, Square, Trash2, Volume2, VolumeX, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronRight, Heart, Menu, MessageCircle, Mic, Plus, Settings2, SmilePlus, Sparkles, Square, Trash2, Volume2, VolumeX, X } from 'lucide-react';
 import { useVoiceChat } from './useVoiceChat';
 import { defaultVoice, speechVoices } from './voiceOptions';
 import { LocalAssistantPanel, localRequest } from './LocalAssistantPanel';
@@ -9,6 +9,7 @@ import { LearningPanel } from './LearningPanel.jsx';
 import { emptyLearning, learningKey, learningContext } from './learning.js';
 import { readChatImage } from './chatImage.js';
 import { chatLinks } from './chatLinks.js';
+import { isImageGenerationRequest } from './imageGeneration.js';
 import { parseMusicCommand } from './appleMusic.js';
 import AppleMusicPanel, { useAppleMusic } from './AppleMusicPanel.jsx';
 import { amazonSearchLink, parseAmazonCommand } from './amazonLinks.js';
@@ -17,6 +18,7 @@ import PeppyFace, { useIdleExpression } from './PeppyFace.jsx';
 import { replyExpression } from './peppyExpression.js';
 import SongWorkshopPanel from './SongWorkshopPanel.jsx';
 import VideoWorkshopPanel from './VideoWorkshopPanel.jsx';
+import MicrolearningPanel from './MicrolearningPanel.jsx';
 import { parseVideoCommand } from './videoWorkshop.js';
 const HostedPdfPanel = lazy(() => import('./HostedPdfPanel.jsx'));
 const GmailPanel = lazy(() => import('./GmailPanel.jsx'));
@@ -74,6 +76,7 @@ function App() {
   const [faceAnimated, setFaceAnimated] = useState(saved.faceAnimated !== false);
   const [selectedVoice, setSelectedVoice] = useState(speechVoices.includes(saved.selectedVoice) ? saved.selectedVoice : defaultVoice);
   const [draft, setDraft] = useState('');
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [image, setImage] = useState(null);
   const [imageError, setImageError] = useState('');
   const [imageBusy, setImageBusy] = useState(false);
@@ -89,6 +92,7 @@ function App() {
   const [copied, setCopied] = useState(false);
   const [localEnabled, setLocalEnabled] = useState(false);
   const [localTask, setLocalTask] = useState(null);
+  const [allowAllLocalActions, setAllowAllLocalActions] = useState(false);
   const [notificationTarget, setNotificationTarget] = useState(null);
   const [learningError, setLearningError] = useState('');
   const [learning, setLearning] = useState(emptyLearning);
@@ -122,7 +126,7 @@ function App() {
   const faceLabel = faceState === 'idle' && faceExpression !== 'neutral' ? faceExpression :
     { idle: 'here with you', listening: 'listening', thinking: 'thinking', speaking: 'speaking' }[faceState];
   useEffect(() => {
-    const savedMessages = messages.map(({ places, ...message }) =>
+    const savedMessages = messages.map(({ places, generatedImage, ...message }) =>
       places?.length ? { ...message, content: '[Live place details are not saved in chat history.]' } : message);
     localStorage.setItem(KEY, JSON.stringify({ messages: savedMessages, memory, name, spokenReplies, selectedVoice, voiceSendEnabled, faceAnimated }));
   }, [messages, memory, name, spokenReplies, selectedVoice, voiceSendEnabled, faceAnimated]);
@@ -153,6 +157,19 @@ function App() {
     } catch (cause) { if (version === imageVersion.current) setImageError(cause.message || 'Image could not be decoded. Choose a valid image.'); }
     finally { if (version === imageVersion.current) setImageBusy(false); }
   }
+  function insertEmoji(emoji) {
+    const field = input.current;
+    if (!field) return;
+    const start = field.selectionStart ?? draft.length;
+    const end = field.selectionEnd ?? start;
+    const next = `${draft.slice(0, start)}${emoji}${draft.slice(end)}`;
+    setDraft(next);
+    setEmojiPickerOpen(false);
+    requestAnimationFrame(() => {
+      field.focus();
+      field.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
+  }
   function removeImage() { imageVersion.current++; setImage(null); setImageBusy(false); setImageError(''); setEditingImage(false); }
   async function send(text = draft, explicitImageSend = false) {
     if (editingImage) { setImageError('Finish or cancel image editing before sending.'); return; }
@@ -162,6 +179,8 @@ function App() {
     const currentConversation = conversation.current;
     const attachedImage = image;
     const videoCommand = !attachedImage && parseVideoCommand(content);
+    const imageGenerationRequested = !attachedImage && isImageGenerationRequest(content);
+    const useLocalAssistant = localEnabled && !imageGenerationRequested;
     const songCommand = !attachedImage && /^peppy[\s,]+(?:write|create|make|draft)\s+(?:me\s+)?(?:a\s+)?song\s+about\s+(.+)$/i.exec(content);
     const amazonCommand = !attachedImage && !songCommand && !videoCommand && parseAmazonCommand(content);
     const musicCommand = !attachedImage && !songCommand && !videoCommand && !amazonCommand && parseMusicCommand(content);
@@ -194,12 +213,12 @@ function App() {
         if (currentConversation === conversation.current) setMessages([...next, { role: 'assistant', content: reply, musicOnly: true }]);
         return;
       }
-      const response = await fetch(localEnabled ? '/api/local/chat' : '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: requestMessages, memory: [name && `The user's name is ${name}.`, memory.slice(0, 1600), learningContext(learning)].filter(Boolean).join('\n') }) });
+      const response = await fetch(useLocalAssistant ? '/api/local/chat' : '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: requestMessages, memory: [name && `The user's name is ${name}.`, memory.slice(0, 1600), learningContext(learning)].filter(Boolean).join('\n') }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Something went wrong.');
       if (currentConversation !== conversation.current) return;
-      if (localEnabled) setLocalTask(data);
-      setMessages([...next, { role: 'assistant', content: data.reply, sources: data.sources, places: data.places }]);
+      if (useLocalAssistant) setLocalTask(data);
+      setMessages([...next, { role: 'assistant', content: data.reply, generatedImage: data.generatedImage, sources: data.sources, places: data.places }]);
       voice.speak(data.reply, true);
     } catch (err) { if (currentConversation === conversation.current) { setMessages([...next, { role: 'assistant', content: `Oh! ${err.message}`, ...(musicCommand ? { musicOnly: true } : {}), ...(amazonCommand ? { amazonOnly: true } : {}), ...(songCommand ? { songOnly: true } : {}), ...(videoCommand ? { videoOnly: true } : {}) }]); if (attachedImage) { setImage(attachedImage); setDraft(content); setImageError('Request failed. The image is restored for review; sending again may incur another charge.'); } } }
     finally { if (currentConversation === conversation.current) { setLoading(false); input.current?.focus(); } }
@@ -215,6 +234,7 @@ function App() {
         : await localRequest('/api/local/approval', { sessionId: localTask.sessionId, approvalId: localTask.pending.id, approved });
       if (currentConversation !== conversation.current) return;
       setLocalTask(data);
+      if (!data.pending && !data.canContinue) setAllowAllLocalActions(false);
       setMessages(previous => [...previous, { role: 'assistant', content: data.reply }]);
       if (!data.pending && !data.result) voice.speak(data.reply, true);
     } catch (cause) {
@@ -222,7 +242,7 @@ function App() {
     } finally { if (currentConversation === conversation.current) setLoading(false); }
   }
 
-  function newChat() { conversation.current += 1; voice.stopAll(); removeImage(); setLocalTask(null); setMessages([]); setDraft(''); setLoading(false); setMenu(false); }
+  function newChat() { conversation.current += 1; voice.stopAll(); removeImage(); setLocalTask(null); setAllowAllLocalActions(false); setMessages([]); setDraft(''); setLoading(false); setMenu(false); }
   async function copyLast() { const last = [...messages].reverse().find(m => m.role === 'assistant'); if (last) { await navigator.clipboard?.writeText(last.content); setCopied(true); setTimeout(() => setCopied(false), 1400); } }
 
   if (!status || status.unavailable) return <main className="app-shell"><section className="side-panel"><p role="status">{status?.unavailable ? 'Peppy could not verify server access. Reload to retry.' : 'Checking Peppy access...'}</p></section></main>;
@@ -261,7 +281,7 @@ function App() {
           <p className="welcome-copy">I’m Peppy — here for the big thoughts, tiny wins,<br className="wide-only"/> weird questions, and everything in between.</p>
           <div className="topic-grid">{topics.map(t => <button className="topic-card" key={t.label} onClick={() => send(t.prompt)}><span className="topic-emoji">{t.icon}</span><span>{t.label}</span><ArrowUp className="topic-arrow" size={14}/></button>)}</div>
           <button className="memory-nudge" onClick={() => setPanel('memory')}><span className="nudge-icon"><Heart size={15}/></span><span><b>Make this feel more like us</b><small>Add a few things for me to remember about you</small></span><ChevronRight size={17}/></button>
-        </div> : <div className="message-list">{messages.map((m, i) => <article className={`message ${m.role}`} key={i}><div className={`message-avatar ${m.role}`}>{m.role === 'assistant' ? 'p' : (name ? name[0].toUpperCase() : '✿')}</div><div className="message-content"><div className="message-label">{m.role === 'assistant' ? 'Peppy' : name || 'You'}{m.role === 'assistant' && i === messages.length - 1 && <button className="copy-button" onClick={copyLast}>{copied ? <Check size={12}/> : null}{copied ? 'Copied' : 'Copy reply'}</button>}</div><ChatText text={m.content}/>{m.role === 'assistant' && <SearchCards sources={m.sources} places={m.places}/>}</div></article>)}{loading && <article className="message assistant"><div className="message-avatar assistant">p</div><div className="message-content"><div className="message-label">Peppy</div><div className="typing"><i/><i/><i/></div></div></article>}<div ref={tail}/></div>}
+        </div> : <div className="message-list">{messages.map((m, i) => <article className={`message ${m.role}`} key={i}><div className={`message-avatar ${m.role}`}>{m.role === 'assistant' ? 'p' : (name ? name[0].toUpperCase() : '✿')}</div><div className="message-content"><div className="message-label">{m.role === 'assistant' ? 'Peppy' : name || 'You'}{m.role === 'assistant' && i === messages.length - 1 && <button className="copy-button" onClick={copyLast}>{copied ? <Check size={12}/> : null}{copied ? 'Copied' : 'Copy reply'}</button>}</div><ChatText text={m.content}/>{m.generatedImage && <div className="generated-image"><img src={m.generatedImage} alt="Image created by Peppy"/><a href={m.generatedImage} download="peppy-generated.png">Download image</a></div>}{m.role === 'assistant' && <SearchCards sources={m.sources} places={m.places}/>}</div></article>)}{loading && <article className="message assistant"><div className="message-avatar assistant">p</div><div className="message-content"><div className="message-label">Peppy</div><div className="typing"><i/><i/><i/></div></div></article>}<div ref={tail}/></div>}
       </section>
 
       <div ref={setNotificationTarget} className="chat-notifications" aria-label="Local chat notifications"/>
@@ -291,13 +311,20 @@ function App() {
                 onChange={event => { void attachImage(event.target.files[0]); event.target.value = ''; }}/>
               <button type="button" className="attach-image-button" disabled={loading || imageBusy || editingImage || voice.listening || Boolean(localTask?.pending || localTask?.canContinue)}
                 onClick={() => imagePicker.current?.click()}>Attach image</button>
+              <button type="button" className="voice-button emoji-button" aria-label="Add emoji" aria-expanded={emojiPickerOpen}
+                disabled={loading || voice.listening || Boolean(localTask?.pending || localTask?.canContinue)}
+                onClick={() => setEmojiPickerOpen(open => !open)}><SmilePlus size={18}/></button>
               <button className={`voice-button ${spokenReplies ? 'active' : ''}`} type="button" aria-label="Spoken replies" aria-pressed={spokenReplies} disabled={!voice.canSpeak} title={voice.canSpeak ? 'Turn spoken replies on or off' : 'Spoken replies are not supported in this browser'} onClick={() => setSpokenReplies(!spokenReplies)}>{spokenReplies ? <Volume2 size={18}/> : <VolumeX size={18}/>}</button>
               <button className={`voice-button ${voice.listening ? 'active' : ''}`} type="button" aria-label={voice.listening ? 'Stop microphone' : 'Start microphone'} aria-pressed={voice.listening} disabled={loading || (localEnabled && Boolean(localTask?.pending || localTask?.canContinue))} onClick={() => voice.listening ? voice.stopListening() : voice.startListening(draft)}>{voice.listening ? <Square size={16}/> : <Mic size={18}/>}</button>
               <button className={`send-button ${draft.trim() || image ? 'ready' : ''}`} type="submit" disabled={(!draft.trim() && !image) || editingImage || imageBusy || loading || voice.listening || (localEnabled && Boolean(localTask?.pending || localTask?.canContinue))} aria-label="Send message"><ArrowUp size={19}/></button>
             </div>
           </div>
+          {emojiPickerOpen && <div className="emoji-picker" role="group" aria-label="Choose an emoji">
+            {['😀', '😄', '😊', '🥰', '😂', '🥹', '😉', '😍', '🤔', '🙌', '👏', '🙏', '✨', '🎉', '💖', '❤️', '👍', '👎', '🔥', '🌈', '🐱', '🌻', '☀️', '🎮'].map(emoji =>
+              <button type="button" key={emoji} aria-label={`Insert ${emoji}`} onClick={() => insertEmoji(emoji)}>{emoji}</button>)}
+          </div>}
         </form>
-        <p className="voice-help">Attach or paste one PNG, JPEG or WebP image (up to 4 MiB / 16 megapixels). Send shares it with OpenAI for discussion or transcription and incurs API charges. Image bytes are not saved in browser history; text replies are. Images are not automatically included in later chats.</p>
+        <p className="voice-help">Attach or paste one PNG, JPEG or WebP image (up to 4 MiB / 16 megapixels). Send shares it with OpenAI for discussion or transcription and incurs API charges. Ask Peppy to “create an image of…” to generate one; image generation may incur additional charges and require model access. Generated images can be downloaded but are not saved in browser history.</p>
         {imageBusy && <p role="status">Preparing image preview...</p>}
         {imageError && <p className="voice-error" role="alert">{imageError}</p>}
         {localEnabled && (localTask?.pending || localTask?.canContinue) && <p className="voice-help" role="status">Review the local action or result before sending another message, or start a new chat.</p>}
@@ -326,8 +353,9 @@ function App() {
           {status?.downtimeResearch && !learningError && <Suspense fallback={<p>Loading research controls...</p>}><ResearchPanel notificationTarget={notificationTarget} learning={learning} saveLearning={saveLearning} chatBusy={loading || videoBusy || imageBusy || Boolean(image) || Boolean(draft.trim()) || voice.listening || voice.preparing || voice.speaking || Boolean(localTask?.pending || localTask?.canContinue)} spokenReplies={spokenReplies} speakInvitation={text => voice.speak(text, true)} prepareConversation={text => { setDraft(text); input.current?.focus(); }}/></Suspense>}
           {status?.localAssistant && <Suspense fallback={<p>Loading Gmail controls...</p>}><GmailPanel notificationTarget={notificationTarget}/></Suspense>}
           {status.authenticationRequired && status.signedIn && <Suspense fallback={<p>Loading document controls...</p>}><HostedPdfPanel/></Suspense>}
+          <details className="feature-panel"><summary>Microlearning - idea cards and growth plans</summary><div className="feature-panel-body"><MicrolearningPanel discussCard={card => { setDraft(current => `${current ? `${current}\n\n` : ''}Let's discuss this idea:\n${card.title}\n${card.content}\nSource: ${card.source}`); input.current?.focus(); }}/></div></details>
           <details className="feature-panel"><summary>Learning, knowledge and improvement suggestions</summary><div className="feature-panel-body">{learningError ? <p role="alert">{learningError}</p> : <LearningPanel state={learning} save={saveLearning}/>}</div></details>
-          {status?.localAssistant && <LocalAssistantPanel enabled={localEnabled} onToggle={value => { voice.stopAll(); setLocalEnabled(value); setLocalTask(null); }} task={localTask} busy={loading} onApproval={localAction} onContinue={() => localAction()}/>}
+          {status?.localAssistant && <LocalAssistantPanel enabled={localEnabled} onToggle={value => { voice.stopAll(); setLocalEnabled(value); setLocalTask(null); setAllowAllLocalActions(false); }} task={localTask} busy={loading} onApproval={localAction} onContinue={() => localAction()} allowAll={allowAllLocalActions} onAllowAllChange={setAllowAllLocalActions}/>}
           <AppleMusicPanel music={music} stopVoice={voice.stopAll}/>
           <AmazonLinksPanel stopVoice={voice.stopAll}/>
           <SongWorkshopPanel ref={songWorkshop} stopVoice={voice.stopAll} onBusyChange={setSongBusy}/>

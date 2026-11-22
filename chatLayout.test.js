@@ -69,6 +69,89 @@ test('reply box shows three lines and follows typed, pasted and dictated text on
   }
 });
 
+test('local assistant approval and result popups support task-scoped allow-all safely', async t => {
+  if (process.env.PEPPY_PDF_UI_TEST !== '1') return t.skip('Build first and set PEPPY_PDF_UI_TEST=1.');
+  const app = express();
+  app.use(express.json());
+  const approvals = [];
+  let continuations = 0;
+  app.get('/api/status', (_req, res) => res.json({ configured: true, localAssistant: true }));
+  app.get('/api/local/config', (_req, res) => res.json({ roots: ['D:\\PeppyWorkspace'], origins: [] }));
+  app.post('/api/local/chat', (_req, res) => res.json({ reply: 'Review this file action.', sessionId: 'session-1',
+    pending: {
+      id: 'approval-1',
+      action: { kind: 'write_file', path: 'D:\\PeppyWorkspace\\hello.js', text: 'console.log("hello");' }
+    }
+  }));
+  app.post('/api/local/approval', (req, res) => {
+    approvals.push({ id: req.body.approvalId, approved: req.body.approved });
+    res.json({
+      sessionId: 'session-1',
+      reply: `Action ${approvals.length} completed.`,
+      result: { path: approvals.length === 1 ? 'D:\\PeppyWorkspace\\hello.js' : 'D:\\PeppyWorkspace\\next.js' },
+      canContinue: true
+    });
+  });
+  app.post('/api/local/continue', (_req, res) => {
+    continuations++;
+    res.json(continuations === 1 ? {
+      sessionId: 'session-1',
+      reply: 'Review the next file action.',
+      pending: {
+        id: 'approval-2',
+        action: { kind: 'write_file', path: 'D:\\PeppyWorkspace\\next.js', text: 'export const next = true;' }
+      }
+    } : { sessionId: 'session-1', reply: 'Task complete.', pending: null });
+  });
+  app.get('/test-state', (_req, res) => res.json({ approvals, continuations }));
+  app.use(express.static(path.join(process.cwd(), 'dist')));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  await page.route('**/*', route => route.request().url().startsWith(base) ? route.continue() : route.abort());
+  await page.goto(base);
+  await page.getByLabel('Local assistant — files and websites').check();
+  await page.getByRole('textbox', { name: 'Your message', exact: true }).fill('Create hello.js in my workspace.');
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Review before execution' });
+  await dialog.waitFor();
+  assert.equal(await dialog.getByText('hello.js').count(), 1);
+  const bounds = await dialog.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return { top: rect.top, bottom: rect.bottom, height: rect.height, viewport: innerHeight };
+  });
+  assert.ok(bounds.top >= 0 && bounds.bottom <= bounds.viewport);
+  await page.keyboard.press('Escape');
+  assert.equal(await dialog.isVisible(), true, 'Escape must not dismiss an unresolved approval');
+  await dialog.getByRole('button', { name: 'Allow all for this task' }).click();
+  const resultDialog = page.getByRole('dialog', { name: 'Review result before sending' });
+  await resultDialog.waitFor();
+  assert.match(await resultDialog.locator('pre').textContent(), /hello\.js/);
+  assert.deepEqual(await (await page.request.get(`${base}/test-state`)).json(), {
+    approvals: [{ id: 'approval-1', approved: true }],
+    continuations: 0
+  }, 'Action result must not be sent before explicit confirmation');
+  await resultDialog.getByRole('button', { name: 'Close for now' }).click();
+  await resultDialog.waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: 'Review result and continue' }).click();
+  await resultDialog.getByRole('button', { name: 'Send result to AI and continue' }).click();
+  await page.waitForFunction(() => document.querySelector('.result-dialog pre')?.textContent.includes('next.js'));
+  let state = await (await page.request.get(`${base}/test-state`)).json();
+  assert.equal(state.approvals.length, 2, 'Allow all should approve the next action in this task');
+  assert.equal(state.approvals[1].id, 'approval-2');
+  await resultDialog.getByRole('button', { name: 'Send result to AI and continue' }).click();
+  await page.getByText('Task complete.', { exact: true }).waitFor();
+  state = await (await page.request.get(`${base}/test-state`)).json();
+  assert.equal(state.continuations, 2);
+  assert.equal(await page.getByLabel('Allow all Local assistant actions for this task').isChecked(), false,
+    'Allow all should reset when the task completes');
+  await page.close();
+});
+
 test('phone reply composer follows short and long chats without a viewport-sized gap', async t => {
   if (process.env.PEPPY_PDF_UI_TEST !== '1') return t.skip('Build first and set PEPPY_PDF_UI_TEST=1.');
   const app = express();

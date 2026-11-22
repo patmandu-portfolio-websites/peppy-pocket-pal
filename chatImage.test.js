@@ -63,6 +63,13 @@ test('composer supports selected and pasted images, explicit send, removal and t
     return canvas.toDataURL('image/png').split(',')[1];
   }), 'base64');
   const picker = page.getByLabel('Select chat image', { exact: true });
+  const composerInput = page.getByRole('textbox', { name: 'Your message', exact: true });
+  await composerInput.fill('hey there');
+  await composerInput.evaluate(element => element.setSelectionRange(3, 3));
+  await page.getByRole('button', { name: 'Add emoji', exact: true }).click();
+  await page.getByRole('button', { name: 'Insert 😊', exact: true }).click();
+  assert.equal(await composerInput.inputValue(), 'hey😊 there');
+  await composerInput.fill('');
   await picker.setInputFiles({ name: 'example.png', mimeType: 'image/png', buffer: bytes });
   await page.getByAltText('Image attached for review').waitFor();
   assert.equal(requests.length, 0);
