@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { readChatImage } from './chatImage.js';
 import { emptyMicrolearning, learningTopics, microlearningKey, readMicrolearning, validateCard } from './microlearning.js';
+import MicrolearningDiscovery from './MicrolearningDiscovery.jsx';
 
 const blankCard = () => ({ title: '', content: '', source: '', topic: learningTopics[0], stashIds: [] });
 
@@ -20,6 +21,7 @@ export default function MicrolearningPanel({ discussCard }) {
   const [interests, setInterests] = useState([]);
   const [goal, setGoal] = useState('');
   const [busy, setBusy] = useState(false);
+  const cardEditor = useRef(null);
 
   useEffect(() => {
     try {
@@ -90,7 +92,13 @@ export default function MicrolearningPanel({ discussCard }) {
   return <section aria-label="Microlearning">
     <h3>Microlearning</h3>
     <p>Make bite-sized ideas, organize them into stashes, and build a growth plan. Cards and plans stay in this browser, unencrypted and unsynchronized; clearing site data removes them. They are not added to chat memory.</p>
-    <p>Use material you have permission to process. Explore <a href="https://www.gutenberg.org/" target="_blank" rel="noopener noreferrer">Project Gutenberg</a> or <a href="https://openstax.org/subjects" target="_blank" rel="noopener noreferrer">OpenStax</a>; check each work's rights and licence. Peppy does not automatically import their books.</p>
+    <p>Use material you have permission to process. Explore <a href="https://www.gutenberg.org/" target="_blank" rel="noopener noreferrer">Project Gutenberg</a> or <a href="https://openstax.org/subjects" target="_blank" rel="noopener noreferrer">OpenStax</a>; check each work's rights and licence.</p>
+    <MicrolearningDiscovery canUseConcept={!busy && !editing && !card.title && !card.content && !card.source}
+      useConcept={value => {
+        setCard({ ...value, stashIds: card.stashIds }); setEditing(null); setError('');
+        setNotice('Review the concept, choose any stashes, then save it.');
+        requestAnimationFrame(() => { cardEditor.current?.scrollIntoView({ block: 'center' }); cardEditor.current?.focus(); });
+      }}/>
 
     <h4>Stashes</h4>
     <label>New stash name <input maxLength={100} value={stashName} onChange={event => setStashName(event.target.value)}/></label>
@@ -129,7 +137,7 @@ export default function MicrolearningPanel({ discussCard }) {
     <label>Reviewed page text or authorized excerpt <textarea disabled={busy} maxLength={6000} rows={5} value={evidence} onChange={event => setEvidence(event.target.value)}/></label>
     <p>Drafting sends only this reviewed text and the source below to OpenAI and incurs API charges. Review AI output; it may be inaccurate.</p>
 
-    <h4>{editing ? 'Edit idea card' : 'Create idea card'}</h4>
+    <h4 ref={cardEditor} tabIndex={-1}>{editing ? 'Edit idea card' : 'Create idea card'}</h4>
     <label>Card source (title, author and optional link) <input disabled={busy} maxLength={500} value={card.source} onChange={event => setCard({ ...card, source: event.target.value })}/></label>
     <button type="button" disabled={busy} onClick={draft}>Draft card from reviewed text with AI</button>
     <label>Card title <input disabled={busy} maxLength={120} value={card.title} onChange={event => setCard({ ...card, title: event.target.value })}/></label>
@@ -138,6 +146,7 @@ export default function MicrolearningPanel({ discussCard }) {
     {data.stashes.length > 0 && <fieldset disabled={busy}><legend>Add to stashes</legend>{data.stashes.map(stash => <label key={stash.id}><input type="checkbox" checked={card.stashIds.includes(stash.id)} onChange={event => setCard({ ...card, stashIds: event.target.checked ? [...card.stashIds, stash.id] : card.stashIds.filter(id => id !== stash.id) })}/> {stash.name}</label>)}</fieldset>}
     <button type="button" disabled={busy} onClick={saveCard}>{editing ? 'Save card changes' : 'Save idea card'}</button>
     {editing && <button type="button" disabled={busy} onClick={() => { setEditing(null); setCard(blankCard()); }}>Cancel editing</button>}
+    {!editing && (card.title || card.content || card.source) && <button type="button" disabled={busy} onClick={() => setCard(blankCard())}>Clear card draft</button>}
 
     <h4>Idea library</h4>
     <label>Search cards <input value={query} onChange={event => setQuery(event.target.value)}/></label>

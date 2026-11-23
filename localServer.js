@@ -22,6 +22,7 @@ import { songWorkshopHandler } from './songWorkshop.js';
 import { installSuno } from './sunoApi.js';
 import { videoWorkshopHandler } from './videoWorkshop.js';
 import { microlearningHandler } from './microlearningApi.js';
+import { discoveryHandler } from './microlearningDiscoveryApi.js';
 
 const linuxVm = process.platform === 'linux' && process.env.PEPPY_VM === '1';
 if ((!linuxVm && process.platform !== 'win32') || process.env.RENDER || process.env.NODE_ENV === 'production') throw new Error('Local assistant requires Windows or explicitly enabled Linux VM mode (PEPPY_VM=1); it cannot run on Render or in production mode.');
@@ -121,6 +122,7 @@ installSuno(app);
 app.post('/api/music/draft', songWorkshopHandler(createClient));
 app.post('/api/video/draft', videoWorkshopHandler(createClient));
 app.post('/api/microlearning', microlearningHandler(createClient));
+app.post('/api/microlearning/discovery', discoveryHandler(createClient));
 installPlacePhotoRoute(app, () => process.env.GOOGLE_MAPS_API_KEY);
 const gmail = await installLocalGmail(app, stateDir);
 await installResearch(app, stateDir, createClient);
