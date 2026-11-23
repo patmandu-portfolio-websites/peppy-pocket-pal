@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { learningTopics } from './microlearning.js';
 
-function Carousel({ label, items, renderItem }) {
+export function Carousel({ label, items, renderItem }) {
   const [index, setIndex] = useState(0);
   const start = useRef(null);
-  function move(delta) { setIndex(value => Math.max(0, Math.min(items.length - 1, value + delta))); }
+  const current = Math.min(index, items.length - 1);
+  function move(delta) { setIndex(Math.max(0, Math.min(items.length - 1, current + delta))); }
   if (!items.length) return null;
   return <section className="discovery-carousel" aria-label={label} tabIndex={0}
     onKeyDown={event => {
@@ -23,10 +24,10 @@ function Carousel({ label, items, renderItem }) {
       if (Math.abs(dx) >= 50 && Math.abs(dx) > Math.abs(dy) * 1.5) move(dx < 0 ? 1 : -1);
     }}
     onPointerCancel={() => { start.current = null; }}>
-    <p role="status">{index + 1} of {items.length}</p>
-    {renderItem(items[index])}
-    <div><button type="button" disabled={index === 0} onClick={() => move(-1)}>Previous {label}</button>
-      <button type="button" disabled={index === items.length - 1} onClick={() => move(1)}>Next {label}</button></div>
+    <p role="status">{current + 1} of {items.length}</p>
+    {renderItem(items[current])}
+    <div><button type="button" disabled={current === 0} onClick={() => move(-1)}>Previous {label}</button>
+      <button type="button" disabled={current === items.length - 1} onClick={() => move(1)}>Next {label}</button></div>
     <p>Swipe left or right, or use the buttons. Focus this carousel and use the arrow keys.</p>
   </section>;
 }
@@ -41,6 +42,7 @@ export default function MicrolearningDiscovery({ useConcept, canUseConcept }) {
   const [hasNext, setHasNext] = useState(false);
   const [book, setBook] = useState(null);
   const [cards, setCards] = useState(null);
+  const [topicCards, setTopicCards] = useState(null);
   const [videos, setVideos] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -54,7 +56,7 @@ export default function MicrolearningDiscovery({ useConcept, canUseConcept }) {
   function close() {
     version.current++;
     controller.current?.abort();
-    setBusy(false); setTopic(''); setBook(null); setCards(null); setVideos(null);
+    setBusy(false); setTopic(''); setBook(null); setCards(null); setTopicCards(null); setVideos(null);
   }
   async function request(body, apply) {
     const current = ++version.current;
@@ -75,7 +77,7 @@ export default function MicrolearningDiscovery({ useConcept, canUseConcept }) {
     }
   }
   function browse(selected, nextPage = 1) {
-    setTopic(selected); setPage(nextPage); setBook(null); setCards(null); setVideos(null); setBooks([]); setHasNext(false);
+    setTopic(selected); setPage(nextPage); setBook(null); setCards(null); setTopicCards(null); setVideos(null); setBooks([]); setHasNext(false);
     request({ operation: 'books', topic: selected, page: nextPage }, data => { setBooks(data.books); setHasNext(data.hasNext); });
   }
   function chooseBook(item) {
@@ -99,6 +101,19 @@ export default function MicrolearningDiscovery({ useConcept, canUseConcept }) {
         <ul>{books.map(item => <li key={item.id}><button type="button" disabled={busy} onClick={() => chooseBook(item)}>{item.title}</button><span> {item.author}</span></li>)}</ul>
         <button type="button" disabled={busy || page === 1} onClick={() => browse(topic, page - 1)}>Previous book page</button>
         <button type="button" disabled={busy || !hasNext} onClick={() => browse(topic, page + 1)}>Next book page</button>
+        <p>For any topic, including those without books, search the web for cited concepts. This sends the topic to OpenAI, makes web-search and drafting requests, and incurs AI/search charges. Review the sources and results.</p>
+        <button type="button" disabled={busy} onClick={() => request({ operation: 'topic-web', topic }, data => {
+          setTopicCards(data.cards); setNotice(data.cards.length ? 'Cited topic concepts ready to review.' : 'No cited topic concepts were found.');
+        })}>Find cited topic concepts on the web</button>
+        {topicCards?.length > 0 && <Carousel key={`topic-${topic}-${topicCards.length}`} label="topic concept" items={topicCards} renderItem={item => <article className="microlearning-card">
+          <h4>{item.title}</h4><p>{item.content}</p>
+          <p>Source: <a href={item.source.url} target="_blank" rel="noopener noreferrer">{item.source.title}</a></p>
+          <button type="button" disabled={busy || !canUseConcept} onClick={() => {
+            useConcept({ title: item.title, content: item.content, source: `${item.source.title.slice(0, 120)} ${item.source.url}`, topic });
+            dialog.current.close();
+          }}>Review and save this topic concept</button>
+          {!canUseConcept && <p>Save or clear your current card draft before loading this concept.</p>}
+        </article>}/>}
       </> : <>
         <button type="button" disabled={busy} onClick={() => { setBook(null); setCards(null); setVideos(null); setError(''); setNotice(''); }}>Back to book titles</button>
         <h4>{book.title}</h4><p>By {book.author} · <a href={book.url} target="_blank" rel="noopener noreferrer">Read the original on Project Gutenberg</a></p>

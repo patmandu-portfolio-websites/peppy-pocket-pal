@@ -14,6 +14,22 @@ export const learningTopics = [
 
 export const emptyMicrolearning = () => ({ cards: [], stashes: [], plan: null });
 
+function validImage(image) {
+  if (!image || !['ai', 'commons'].includes(image.kind) || typeof image.data !== 'string' ||
+      image.data.length > 200000 || !/^data:image\/(?:jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(image.data)) return false;
+  if (image.kind === 'ai') return true;
+  if (['title', 'creator', 'license'].some(field => typeof image[field] !== 'string' || !image[field].trim() || image[field].length > 300)) return false;
+  if (typeof image.sourceUrl !== 'string' || image.sourceUrl.length > 2048 ||
+      typeof image.licenseUrl !== 'string' || image.licenseUrl.length > 2048) return false;
+  try {
+    const source = new URL(image.sourceUrl);
+    const license = new URL(image.licenseUrl);
+    return source.protocol === 'https:' && source.hostname === 'commons.wikimedia.org' && !source.username && !source.password &&
+      source.pathname.startsWith('/wiki/File:') && license.protocol === 'https:' &&
+      license.hostname === 'creativecommons.org' && !license.username && !license.password;
+  } catch { return false; }
+}
+
 export function readMicrolearning(raw) {
   if (!raw) return emptyMicrolearning();
   const data = JSON.parse(raw);
@@ -28,7 +44,8 @@ export function readMicrolearning(raw) {
     if (!card || typeof card.id !== 'string' || typeof card.title !== 'string' ||
         typeof card.content !== 'string' || typeof card.source !== 'string' ||
         !learningTopics.includes(card.topic) || !Array.isArray(card.stashIds) ||
-        card.stashIds.some(id => typeof id !== 'string')) throw new Error('Invalid idea card.');
+        card.stashIds.some(id => typeof id !== 'string') ||
+        (card.image !== undefined && !validImage(card.image))) throw new Error('Invalid idea card.');
   }
   if (data.plan && (typeof data.plan.goal !== 'string' || !Array.isArray(data.plan.interests) ||
       data.plan.interests.some(topic => !learningTopics.includes(topic)) ||
@@ -47,5 +64,6 @@ export function validateCard(card) {
   }
   if (!learningTopics.includes(card.topic)) throw new Error('Choose a topic.');
   if (!Array.isArray(card.stashIds) || card.stashIds.some(id => typeof id !== 'string')) throw new Error('Invalid stash selection.');
+  if (card.image !== undefined && !validImage(card.image)) throw new Error('Invalid card image.');
   return { ...card, title: card.title.trim(), content: card.content.trim(), source: card.source.trim() };
 }

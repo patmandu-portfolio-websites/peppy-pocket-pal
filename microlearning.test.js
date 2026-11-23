@@ -17,6 +17,8 @@ test('cards require an attributed bounded idea and stored data is validated', ()
   }
   assert.throws(() => readMicrolearning('{"cards":{},"stashes":[],"plan":null}'));
   assert.throws(() => readMicrolearning(JSON.stringify({ cards: [card], stashes: [], plan: { goal: 'X', interests: [], cardIds: [null], actions: [] } })));
+  assert.throws(() => validateCard({ ...card, image: { kind: 'ai', data: 'javascript:alert(1)' } }));
+  assert.throws(() => readMicrolearning(JSON.stringify({ cards: [{ ...card, image: { kind: 'ai', data: `data:image/jpeg;base64,${'A'.repeat(200001)}` } }], stashes: [], plan: null })));
 });
 
 test('AI operations isolate inputs, validate images and reject invalid or invented results', async t => {

@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { readChatImage } from './chatImage.js';
 import { emptyMicrolearning, learningTopics, microlearningKey, readMicrolearning, validateCard } from './microlearning.js';
-import MicrolearningDiscovery from './MicrolearningDiscovery.jsx';
+import { chatLinks } from './chatLinks.js';
+import MicrolearningDiscovery, { Carousel } from './MicrolearningDiscovery.jsx';
+import MicrolearningImage, { CardImage } from './MicrolearningImage.jsx';
 
 const blankCard = () => ({ title: '', content: '', source: '', topic: learningTopics[0], stashIds: [] });
 
@@ -16,6 +18,7 @@ export default function MicrolearningPanel({ discussCard }) {
   const [topicFilter, setTopicFilter] = useState('');
   const [stashFilter, setStashFilter] = useState('');
   const [query, setQuery] = useState('');
+  const [swipeLibrary, setSwipeLibrary] = useState(false);
   const [image, setImage] = useState(null);
   const [evidence, setEvidence] = useState('');
   const [interests, setInterests] = useState([]);
@@ -87,13 +90,27 @@ export default function MicrolearningPanel({ discussCard }) {
   const visible = data.cards.filter(item => (!topicFilter || item.topic === topicFilter) &&
     (!stashFilter || item.stashIds.includes(stashFilter)) &&
     `${item.title} ${item.content} ${item.source}`.toLowerCase().includes(query.toLowerCase()));
+  function renderCard(item) {
+    return <article className="microlearning-card" key={item.id}>
+      <h5>{item.title}</h5><CardImage image={item.image} title={item.title}/><p>{item.content}</p>
+      <p>Source: {chatLinks(item.source).map((part, index) => part.url ?
+        <a key={index} href={part.url} target="_blank" rel="noopener noreferrer">{part.text}</a> : part.text)}</p>
+      <p>Topic: {item.topic} {item.stashIds.length > 0 && ` · Stashes: ${item.stashIds.map(id => data.stashes.find(stash => stash.id === id)?.name).filter(Boolean).join(', ')}`}</p>
+      <button type="button" disabled={busy} onClick={() => { discussCard(item); setNotice('Card added to your chat draft. Review it before sending.'); }}>Discuss {item.title} in chat</button>
+      <button type="button" disabled={busy} onClick={() => { setCard({ ...item }); setEditing(item.id); setNotice('Card loaded into the editor above.'); }}>Edit {item.title}</button>
+      <button type="button" disabled={busy} onClick={() => {
+        const saved = update(() => ({ ...data, cards: data.cards.filter(existing => existing.id !== item.id) }), 'Card deleted.');
+        if (saved && editing === item.id) { setEditing(null); setCard(blankCard()); }
+      }}>Delete {item.title}</button>
+    </article>;
+  }
 
   if (loadError) return <p role="alert">{loadError}</p>;
   return <section aria-label="Microlearning">
     <h3>Microlearning</h3>
     <p>Make bite-sized ideas, organize them into stashes, and build a growth plan. Cards and plans stay in this browser, unencrypted and unsynchronized; clearing site data removes them. They are not added to chat memory.</p>
     <p>Use material you have permission to process. Explore <a href="https://www.gutenberg.org/" target="_blank" rel="noopener noreferrer">Project Gutenberg</a> or <a href="https://openstax.org/subjects" target="_blank" rel="noopener noreferrer">OpenStax</a>; check each work's rights and licence.</p>
-    <MicrolearningDiscovery canUseConcept={!busy && !editing && !card.title && !card.content && !card.source}
+    <MicrolearningDiscovery canUseConcept={!busy && !editing && !card.title && !card.content && !card.source && !card.image}
       useConcept={value => {
         setCard({ ...value, stashIds: card.stashIds }); setEditing(null); setError('');
         setNotice('Review the concept, choose any stashes, then save it.');
@@ -144,24 +161,18 @@ export default function MicrolearningPanel({ discussCard }) {
     <label>Idea <textarea disabled={busy} maxLength={1200} rows={4} value={card.content} onChange={event => setCard({ ...card, content: event.target.value })}/></label>
     <label>Card topic <select disabled={busy} value={card.topic} onChange={event => setCard({ ...card, topic: event.target.value })}>{learningTopics.map(topic => <option key={topic}>{topic}</option>)}</select></label>
     {data.stashes.length > 0 && <fieldset disabled={busy}><legend>Add to stashes</legend>{data.stashes.map(stash => <label key={stash.id}><input type="checkbox" checked={card.stashIds.includes(stash.id)} onChange={event => setCard({ ...card, stashIds: event.target.checked ? [...card.stashIds, stash.id] : card.stashIds.filter(id => id !== stash.id) })}/> {stash.name}</label>)}</fieldset>}
+    <MicrolearningImage card={card} disabled={busy} onBusyChange={setBusy} onChange={value => setCard(current => ({ ...current, image: value }))}/>
     <button type="button" disabled={busy} onClick={saveCard}>{editing ? 'Save card changes' : 'Save idea card'}</button>
     {editing && <button type="button" disabled={busy} onClick={() => { setEditing(null); setCard(blankCard()); }}>Cancel editing</button>}
-    {!editing && (card.title || card.content || card.source) && <button type="button" disabled={busy} onClick={() => setCard(blankCard())}>Clear card draft</button>}
+    {!editing && (card.title || card.content || card.source || card.image) && <button type="button" disabled={busy} onClick={() => setCard(blankCard())}>Clear card draft</button>}
 
     <h4>Idea library</h4>
     <label>Search cards <input value={query} onChange={event => setQuery(event.target.value)}/></label>
     <label>Filter by topic <select value={topicFilter} onChange={event => setTopicFilter(event.target.value)}><option value="">All topics</option>{learningTopics.map(topic => <option key={topic}>{topic}</option>)}</select></label>
     <label>Filter by stash <select value={stashFilter} onChange={event => setStashFilter(event.target.value)}><option value="">All stashes</option>{data.stashes.map(stash => <option key={stash.id} value={stash.id}>{stash.name}</option>)}</select></label>
+    <button type="button" onClick={() => setSwipeLibrary(value => !value)}>{swipeLibrary ? 'Show saved cards as a list' : 'Swipe through saved cards'}</button>
     {!visible.length && <p>No cards match yet.</p>}
-    {visible.map(item => <article className="microlearning-card" key={item.id}>
-      <h5>{item.title}</h5><p>{item.content}</p><p>Source: {item.source}</p><p>Topic: {item.topic} {item.stashIds.length > 0 && ` · Stashes: ${item.stashIds.map(id => data.stashes.find(stash => stash.id === id)?.name).filter(Boolean).join(', ')}`}</p>
-      <button type="button" disabled={busy} onClick={() => { discussCard(item); setNotice('Card added to your chat draft. Review it before sending.'); }}>Discuss {item.title} in chat</button>
-      <button type="button" disabled={busy} onClick={() => { setCard({ ...item }); setEditing(item.id); setNotice('Card loaded into the editor above.'); }}>Edit {item.title}</button>
-      <button type="button" disabled={busy} onClick={() => {
-        const saved = update(() => ({ ...data, cards: data.cards.filter(existing => existing.id !== item.id) }), 'Card deleted.');
-        if (saved && editing === item.id) { setEditing(null); setCard(blankCard()); }
-      }}>Delete {item.title}</button>
-    </article>)}
+    {swipeLibrary ? <Carousel key={`${topicFilter}-${stashFilter}-${query}`} label="saved card" items={visible} renderItem={renderCard}/> : visible.map(renderCard)}
 
     <h4>Growth plan</h4>
     <p>Choose interests and a goal. Peppy sends your goal, interests and up to the first 20 matching saved cards to OpenAI to select up to five cards and suggest actions. This incurs API charges; review suggestions before acting.</p>

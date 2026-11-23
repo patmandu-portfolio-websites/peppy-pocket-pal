@@ -18,6 +18,7 @@ import { installSuno, installSunoCallback } from './sunoApi.js';
 import { videoWorkshopHandler } from './videoWorkshop.js';
 import { microlearningHandler } from './microlearningApi.js';
 import { discoveryHandler } from './microlearningDiscoveryApi.js';
+import { microlearningMediaHandler } from './microlearningMediaApi.js';
 
 const app = express();
 installSunoCallback(app);
@@ -59,6 +60,7 @@ app.post('/api/speech', createSpeechHandler(() => new OpenAI({ apiKey: process.e
 app.post('/api/learning/propose', learningHandler(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })));
 app.post('/api/microlearning', microlearningHandler(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })));
 app.post('/api/microlearning/discovery', discoveryHandler(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })));
+app.post('/api/microlearning/media', microlearningMediaHandler(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })));
 
 app.post('/api/chat', async (req, res) => {
   if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'Add your OpenAI API key to the .env file to bring Peppy to life.' });

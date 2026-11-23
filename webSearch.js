@@ -38,6 +38,17 @@ export function webSources(response) {
   return sources;
 }
 
+export function generatedImageData(response) {
+  const generated = response.output?.find(item => item.type === 'image_generation_call')?.result;
+  const bytes = typeof generated === 'string' && generated.length <= 16 * 1024 * 1024 &&
+    /^[A-Za-z0-9+/]+={0,2}$/.test(generated) ? Buffer.from(generated, 'base64') : null;
+  if (!bytes || bytes.length > 12 * 1024 * 1024 || bytes.toString('base64') !== generated ||
+      !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    throw new Error('Image generation did not return a valid PNG. Check image-model access and try again.');
+  }
+  return `data:image/png;base64,${generated}`;
+}
+
 function safeAttributions(photo) {
   return (photo?.authorAttributions || []).slice(0, 5).flatMap(item => {
     const name = typeof item.displayName === 'string' ? item.displayName.slice(0, 160) : '';
@@ -104,17 +115,7 @@ export async function createWebChat({ client, messages, memory, instructions, pl
     input: [{ role: 'developer', content: imageChatInstructions }, ...input],
     max_output_tokens: 800
   });
-  const generated = generateImage && response.output?.find(item => item.type === 'image_generation_call')?.result;
-  let generatedImage;
-  if (generateImage) {
-    const bytes = typeof generated === 'string' && generated.length <= 16 * 1024 * 1024 &&
-      /^[A-Za-z0-9+/]+={0,2}$/.test(generated) ? Buffer.from(generated, 'base64') : null;
-    if (!bytes || bytes.length > 12 * 1024 * 1024 || bytes.toString('base64') !== generated ||
-        !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
-      throw new Error('Image generation did not return a valid PNG. Check image-model access and try again.');
-    }
-    generatedImage = `data:image/png;base64,${generated}`;
-  }
+  const generatedImage = generateImage ? generatedImageData(response) : undefined;
   return {
     reply: response.output_text || 'I made this image for you.',
     ...(generatedImage ? { generatedImage } : {}),
